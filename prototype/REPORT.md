@@ -1,7 +1,8 @@
 # Stoa POC — Completion Report
 
 **Branch:** `poc-scaffold`
-**Commit:** _(see below)_
+**Commit:** `3752218e70fa8d1015d9c8bfd42c23d3a19a1f50`
+**PR:** https://github.com/Joera/stoa/pull/1
 **Date:** 2026-10-02
 
 ## Files Created
@@ -94,4 +95,4 @@ PROVIDER_KEY=sk-... PORT=8080 npm start
 
 ## PR URL
 
-_(to be filled after `gh pr create`)_
+https://github.com/Joera/stoa/pull/1
