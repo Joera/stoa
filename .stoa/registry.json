@@ -1,0 +1,30 @@
+{
+  "repo": "Joera/stoa",
+  "updated": "2026-10-02",
+  "tasks": [
+    {
+      "title": "v4pro-scaffold-poc",
+      "purpose": "implement",
+      "worker": "builder",
+      "model": "deepseek-v4-pro",
+      "conversation_id": "3e818c6897a34816a753b832bcd4e802",
+      "worktree": "/home/joera/worktrees/stoa-poc-scaffold",
+      "branch": "poc-scaffold",
+      "base": "origin/main",
+      "pr_url": "https://github.com/Joera/stoa/pull/1",
+      "pr_head_commit": "6441491",
+      "diff": "/home/joera/stoa/.stoa/diffs/scaffold-poc.diff",
+      "gates_verified": ["typecheck", "build", "smoke(15)"],
+      "review_model": "deepseek-v4-flash-0731 (requested kimi-k2-7-code, harness fell back to default -> same-family review)",
+      "review_conversation_id": "44e8e4673fe3478c80ab7388fdf65ad7",
+      "review_report": "/home/joera/stoa/.stoa/diffs/scaffold-poc-review/REPORT.md",
+      "review_verdict": "BLOCKING (initial) -> APPROVE-WITH-NITS (final, fix ed3bd0d)",
+      "review_findings": ["B1 transcript content not extracted", "B2 answer_delta never fires", "B3 tool events keyed by id not callId", "B4 source attribution unwired"],
+      "review_status": "approved-with-nits",
+      "status": "ready-for-merge",
+      "fix_commit": "ed3bd0d",
+      "fix_diff": "/home/joera/stoa/.stoa/diffs/scaffold-poc-fix.diff",
+      "residual_nits": ["SPA live-generation lifecycle not cleared on commit", "answer_delta prefix-length diff", "index-aligned tool diff", "fire-and-forget emitSourcesIfNew", "duplicated matching logic"]
+    }
+  ]
+}
