@@ -1,11 +1,11 @@
 # Stoa POC
 
 A proof-of-concept shared room where several people can contribute material and
-question it together through one shared AI agent. Built on **Pi Durable**.
+question it together through one shared AI agent. Built on **Pi Durable**
+with Venice.ai as the model provider.
 
 > **UX-first, NO neutrality.** No encryption, attestation, confidential compute,
-> or multi-host portability. One shared model provider, plain WebSocket, one
-> Docker container.
+> or multi-host portability. Single Venice provider, plain WebSocket, Docker.
 
 ## Layout
 
@@ -13,20 +13,18 @@ question it together through one shared AI agent. Built on **Pi Durable**.
 prototype/
 ├── README.md               # this file
 ├── REPORT.md               # full completion report
+├── .env.example            # compose/root env placeholders
 ├── docker-compose.yml      # two services: server + web
 ├── shared/                 # SINGLE SOURCE OF TRUTH for the WS protocol
 │   ├── protocol.js         # message types, factories, type guards (ESM, JSDoc)
 │   └── protocol.d.ts       # TypeScript declarations (consumed by server/)
-├── server/                 # backend — Pi Durable + WS bridge
-│   ├── package.json, tsconfig.json
-│   ├── Dockerfile
-│   ├── src/                # server.ts, bridge.ts, room-extension.ts, config.ts
+├── server/                 # backend — Pi Durable + WS bridge + Venice provider
+│   ├── .env.example, package.json, tsconfig.json, Dockerfile
+│   ├── src/server.ts       # Venice provider via createProvider (qwen-chat-template)
 │   └── scripts/smoke.mjs
-└── web/                    # frontend — plain HTML/CSS/JS SPA
-    ├── index.html          # room view, composer, interrupt, source chips
-    ├── config.js           # window.STOA_WS_URL = 'ws://localhost:8080'
-    ├── nginx.conf          # serves static + shared/ module
-    └── Dockerfile          # nginx:alpine
+└── web/                    # frontend — plain SPA, configurable WS URL
+    ├── index.html, config.js, nginx.conf, Dockerfile
+    └── scripts/serve.mjs
 ```
 
 ## Quick Start (local)
@@ -44,19 +42,18 @@ node prototype/web/scripts/serve.mjs
 
 With a model key:
 ```bash
-PROVIDER_KEY=sk-... PORT=8080 npm start
+VENICE_INFERENCE_KEY=your-key PORT=8080 npm start
 ```
 
-Open two browser tabs at the web frontend. Ask a question; the answer streams live in both.
-
-**WS URL configuration (frontend):** edit `web/config.js` to change the default,
-or pass `?ws=wss://myhost:8080` in the URL.
+Or drop a `server/.env` (see `server/.env.example`) next to `package.json` —
+`npm start` loads it automatically via `node --env-file-if-exists=.env` (Node ≥22.9).
+No key = server still boots; only model answers are unavailable.
 
 ## Docker
 
 ```bash
 cd prototype
-PROVIDER_KEY=sk-... docker compose up --build
+VENICE_INFERENCE_KEY=your-key docker compose up --build
 ```
 
 - **Server:** `http://localhost:8080` (WS at `/ws`)
@@ -68,35 +65,23 @@ PROVIDER_KEY=sk-... docker compose up --build
 |---|---|---|
 | `PORT` | `8080` | HTTP + WebSocket listen port |
 | `STORAGE_PATH` | `./agent.sqlite` | SQLite database path |
-| `PROVIDER_KEY` | _(none)_ | OpenAI API key |
-| `MODEL` | `gpt-5-mini` | Model ID to use |
+| `VENICE_INFERENCE_KEY` | _(none)_ | Venice API key |
+| `VENICE_BASE_URL` | `https://api.venice.ai/api/v1` | Venice API base URL |
+| `MODEL` | `deepseek-v4-flash-0731` | Model ID (DeepSeek V4 Flash 0731 via Venice) |
 
-## WS Protocol
+## Provider: Venice
 
-Defined once in `shared/protocol.js` — consumed by both `server/` and `web/`.
+Uses `createProvider` from `@earendil-works/pi-ai`:
+- API: `openai-completions`
+- Base URL: `https://api.venice.ai/api/v1` (configurable)
+- Auth: `VENICE_INFERENCE_KEY` env var
+- Model: `deepseek-v4-flash-0731` (DeepSeek V4 Flash 0731 via Venice)
+- Thinking: `qwen-chat-template` with `chatTemplateKwargs: { enable_thinking: true, preserve_thinking: false }`
 
-### Client → Server
+## WS Protocol (shared/protocol.js)
 
-| Message | Meaning |
-|---|---|
-| `{t:"join", room}` | Attach to room |
-| `{t:"submit", content, requestId, whenBusy?}` | Submit input (exactly-once) |
-| `{t:"steer", content}` | Redirect running turn |
-| `{t:"interrupt"}` | Abort current work |
-| `{t:"fork", atAnswerId, content?}` | Open side conversation (not yet implemented) |
-| `{t:"configure", tools?}` | Rule/tool toggle (not yet implemented) |
-| `{t:"ping"}` | Keepalive |
-
-### Server → Client
-
-| Message | Meaning |
-|---|---|
-| `{t:"view", snapshot}` | Full state on join |
-| `{t:"commit", ops}` | Incremental entry changes |
-| `{t:"answer_delta", text}` | Streaming partial answer |
-| `{t:"tool", id, name, output}` | Tool progress |
-| `{t:"sources", refs}` | Which contributions an answer drew on |
-| `{t:"error", message}` | Rejection / failure |
+Client→Server: `join`, `submit` (exactly-once), `steer`, `interrupt`, `fork`, `configure`, `ping`
+Server→Client: `view`, `commit`, `answer_delta`, `tool`, `sources`, `error`
 
 ## Gating
 
@@ -104,7 +89,7 @@ Defined once in `shared/protocol.js` — consumed by both `server/` and `web/`.
 cd prototype/server
 npm run typecheck   # tsc --noEmit — zero errors
 npm run build       # tsc emit — zero errors
-npm run smoke       # boot + WS + view + transcript + ping + exit (no key needed)
+npm run smoke       # boot + WS + view + transcript + ping + exit (no key)
 
 cd prototype
 docker compose config  # must pass
