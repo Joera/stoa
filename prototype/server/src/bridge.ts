@@ -214,7 +214,7 @@ export async function handleClient(harness: Harness, ws: WebSocket, _ctx: Contex
       switch (msg.t) {
         case "join": {
           closeView();
-          const root = await harness.root(_ctx, { agent: { instructions: "You are a helpful assistant in a shared room. Use list_contributions to see available material. Be concise." } });
+          const root = await harness.root(_ctx, { agent: { model: { provider: "venice", modelId: process.env["MODEL"] ?? "deepseek-v4-flash-0731" }, instructions: "You are a helpful assistant in a shared room. Use list_contributions to see available material. Be concise." } });
           conversation = root;
           const view = await root.viewState(_ctx);
           const current = view.value;

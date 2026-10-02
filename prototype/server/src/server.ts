@@ -1,6 +1,7 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { createModels } from "@earendil-works/pi-ai/models";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+import { createModels, createProvider } from "@earendil-works/pi-ai/models";
+import type { Provider } from "@earendil-works/pi-ai/models";
+import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { Harness, createRegistry } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { loadConfig } from "./config.js";
@@ -8,6 +9,56 @@ import { RoomExtension } from "./room-extension.js";
 import { handleClient } from "./bridge.js";
 import { createServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
+
+function veniceProvider(baseUrl: string): Provider<"openai-completions"> {
+  return createProvider<"openai-completions">({
+    id: "venice",
+    name: "Venice",
+    baseUrl,
+    auth: {
+      apiKey: {
+        name: "Venice API key",
+        async resolve({ credential }) {
+          const key = credential?.key ?? process.env["VENICE_INFERENCE_KEY"];
+          if (!key) return undefined;
+          return { auth: { apiKey: key }, source: "VENICE_INFERENCE_KEY" };
+        },
+      },
+    },
+    api: { "openai-completions": openAICompletionsApi() },
+    models: [
+      {
+        id: "deepseek-v4-flash-0731",
+        name: "DeepSeek V4 Flash 0731 (Venice)",
+        api: "openai-completions",
+        provider: "venice",
+        baseUrl: baseUrl,
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 1048576,
+        maxTokens: 1048576,
+        type: "chat",
+        thinkingLevelMap: {
+          minimal: "low",
+          low: "low",
+          medium: "medium",
+          high: "high",
+          xhigh: "high",
+          max: "high",
+        },
+        compat: {
+          supportsStore: false,
+          supportsDeveloperRole: false,
+          maxTokensField: "max_tokens",
+          thinkingFormat: "qwen-chat-template",
+          chatTemplateKwargs: { enable_thinking: true, preserve_thinking: false },
+          requiresReasoningContentOnAssistantMessages: true,
+        },
+      },
+    ],
+  });
+}
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -17,10 +68,7 @@ async function main(): Promise<void> {
   const storage = await openNodeSqliteStorage(config.storagePath);
 
   const models = createModels();
-  if (config.providerKey) {
-    process.env["OPENAI_API_KEY"] = config.providerKey;
-  }
-  models.setProvider(openaiProvider());
+  models.setProvider(veniceProvider(config.veniceBaseUrl));
 
   const registry = createRegistry();
   registry.install(RoomExtension);
@@ -28,7 +76,14 @@ async function main(): Promise<void> {
   console.log("Opening harness...");
   const harness = await Harness.open(
     storage,
-    { models, registry, settings: { extensions: [RoomExtension], compaction: { reserveTokens: 16384, backgroundTokens: 0 } } },
+    {
+      models,
+      registry,
+      settings: {
+        extensions: [RoomExtension],
+        compaction: { reserveTokens: 16384, backgroundTokens: 0 },
+      },
+    },
     ctx
   );
 
@@ -36,7 +91,6 @@ async function main(): Promise<void> {
   console.log("Harness ready, resumed pending work.");
 
   const httpServer = createServer((_req, res) => {
-    // No static serving — backend is WS-only. Return a simple health check for non-upgrade requests.
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("Stoa server OK — WebSocket at /ws\n");
   });
@@ -62,8 +116,9 @@ async function main(): Promise<void> {
 
   httpServer.listen(config.port, () => {
     console.log(`Stoa server listening on port ${config.port} (WS at /ws)`);
-    if (!config.providerKey) {
-      console.log("⚠ No PROVIDER_KEY set — model answers will not be available.");
+    console.log(`Venice provider: ${config.veniceBaseUrl} / model: ${config.model}`);
+    if (!config.veniceKey && !process.env["VENICE_INFERENCE_KEY"]) {
+      console.log("⚠ No VENICE_INFERENCE_KEY set — model answers will not be available.");
     }
   });
 

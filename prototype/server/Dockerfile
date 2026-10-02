@@ -19,7 +19,9 @@ RUN npm run build
 # Runtime env defaults
 ENV PORT=8080
 ENV STORAGE_PATH=/data/agent.sqlite
-ENV PROVIDER_KEY=""
+ENV VENICE_INFERENCE_KEY=""
+ENV MODEL=deepseek-v4-flash-0731
+ENV VENICE_BASE_URL=https://api.venice.ai/api/v1
 
 EXPOSE 8080
 VOLUME /data

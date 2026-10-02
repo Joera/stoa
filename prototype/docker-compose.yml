@@ -6,8 +6,9 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - PROVIDER_KEY=${PROVIDER_KEY:-}
-      - MODEL=${MODEL:-gpt-5-mini}
+      - VENICE_INFERENCE_KEY=${VENICE_INFERENCE_KEY:-}
+      - MODEL=${MODEL:-deepseek-v4-flash-0731}
+      - VENICE_BASE_URL=${VENICE_BASE_URL:-https://api.venice.ai/api/v1}
     volumes:
       - stoa-data:/data
     restart: unless-stopped
