@@ -1,0 +1,3248 @@
+diff --git a/prototype/.dockerignore b/prototype/.dockerignore
+new file mode 100644
+index 0000000..6bc61f2
+--- /dev/null
++++ b/prototype/.dockerignore
+@@ -0,0 +1,9 @@
++node_modules
++dist
++*.sqlite
++*.sqlite-journal
++*.sqlite-wal
++.git
++.gitignore
++scripts
++REPORT.md
+diff --git a/prototype/.gitignore b/prototype/.gitignore
+new file mode 100644
+index 0000000..02f90fa
+--- /dev/null
++++ b/prototype/.gitignore
+@@ -0,0 +1,7 @@
++node_modules/
++dist/
++*.sqlite
++*.sqlite-journal
++*.sqlite-wal
++*.sqlite-shm
++test-boot.sqlite
+diff --git a/prototype/Dockerfile b/prototype/Dockerfile
+new file mode 100644
+index 0000000..7201713
+--- /dev/null
++++ b/prototype/Dockerfile
+@@ -0,0 +1,25 @@
++FROM node:22-alpine
++
++WORKDIR /app
++
++# Copy package manifests and install
++COPY package.json package-lock.json* ./
++RUN npm ci --ignore-scripts && npm cache clean --force
++
++# Copy source and build
++COPY tsconfig.json ./
++COPY src/ ./src/
++RUN npm run build
++
++# Copy public frontend (no build step needed)
++COPY public/ ./public/
++
++# Runtime env defaults
++ENV PORT=8080
++ENV STORAGE_PATH=/data/agent.sqlite
++ENV PROVIDER_KEY=""
++
++EXPOSE 8080
++VOLUME /data
++
++CMD ["node", "dist/server.js"]
+diff --git a/prototype/README.md b/prototype/README.md
+new file mode 100644
+index 0000000..0c09ece
+--- /dev/null
++++ b/prototype/README.md
+@@ -0,0 +1,94 @@
++# Stoa POC
++
++A proof-of-concept shared room where several people can contribute material and
++question it together through one shared AI agent. Built on **Pi Durable**.
++
++> **UX-first, NO neutrality.** No encryption, attestation, confidential compute,
++> or multi-host portability. One shared model provider, plain WebSocket, one
++> Docker container.
++
++## Quick Start
++
++```bash
++# Install
++npm install
++
++# Build TypeScript
++npm run build
++
++# Run (no model key = server boots but model calls will fail)
++PORT=8080 STORAGE_PATH=./agent.sqlite npm start
++
++# With a real model:
++PROVIDER_KEY=sk-... npm start
++```
++
++Open `http://localhost:8080` in two browser tabs. Ask a question in one; the
++answer streams live in both.
++
++## Environment Variables
++
++| Variable | Default | Description |
++|---|---|---|
++| `PORT` | `8080` | HTTP + WebSocket listen port |
++| `STORAGE_PATH` | `./agent.sqlite` | SQLite database path |
++| `PROVIDER_KEY` | _(none)_ | OpenAI API key |
++| `MODEL` | `gpt-5-mini` | Model ID to use |
++
++## Docker
++
++```bash
++# Build and run with Docker Compose
++PROVIDER_KEY=sk-... docker compose up --build
++
++# Or with plain docker:
++docker build -t stoa-poc .
++docker run -p 8080:8080 -v stoa-data:/data -e PROVIDER_KEY=sk-... stoa-poc
++```
++
++## Milestone 1 Demo
++
++1. Start the server (with or without a model key).
++2. Open `http://localhost:8080` in **two browser tabs**.
++3. In one tab, type a question and press Enter.
++4. Both tabs see the shared transcript update live.
++5. A late-joining tab receives the full snapshot, then incremental deltas.
++6. If running with a model key, answers stream in real time with source
++   attribution chips under each answer.
++
++## Project Layout
++
++```
++prototype/
++├── src/               # TypeScript backend
++│   ├── server.ts      # Boots harness, serves static, opens /ws
++│   ├── bridge.ts      # WS ⟷ harness protocol bridge
++│   ├── room-extension.ts  # Contributions doc, source ledger, attribution hooks
++│   └── config.ts      # Env config
++├── public/            # Plain HTML/CSS/JS SPA (no build step)
++│   └── index.html
++├── scripts/
++│   └── smoke.mjs      # Smoke test (boot + WS + protocol)
++├── Dockerfile
++├── docker-compose.yml
++└── README.md
++```
++
++## WS Protocol
++
++Client → server: `join`, `submit`, `steer`, `interrupt`, `fork`, `configure`, `ping`
++Server → client: `view`, `commit`, `answer_delta`, `tool`, `sources`, `error`
++
++See `prototype.md` in the `brain/` docs for the full spec.
++
++## Gating
++
++```bash
++npm run typecheck   # tsc --noEmit — zero errors
++npm run build       # tsc emit — zero errors
++npm run smoke       # boot server + WS handshake + view + protocol flow
++```
++
++## License
++
++MIT
+diff --git a/prototype/REPORT.md b/prototype/REPORT.md
+new file mode 100644
+index 0000000..7a01304
+--- /dev/null
++++ b/prototype/REPORT.md
+@@ -0,0 +1,98 @@
++# Stoa POC — Completion Report
++
++**Branch:** `poc-scaffold`
++**Commit:** `3752218e70fa8d1015d9c8bfd42c23d3a19a1f50`
++**PR:** https://github.com/Joera/stoa/pull/1
++**Date:** 2026-10-02
++
++## Files Created
++
++```
++prototype/
++├── package.json              # deps + scripts
++├── tsconfig.json             # TypeScript config (Node16 ESM)
++├── .dockerignore
++├── Dockerfile                # node:22-alpine, VOLUME /data, EXPOSE 8080
++├── docker-compose.yml        # port 8080, named volume, PROVIDER_KEY passthrough
++├── README.md                 # how to run, env vars, milestone-1 demo, layout
++├── scripts/
++│   └── smoke.mjs             # 15-pass smoke test
++├── public/
++│   └── index.html            # SPA: room view, composer, interrupt, source chips, contribution rail
++└── src/
++    ├── config.ts             # env: PORT, STORAGE_PATH, PROVIDER_KEY, MODEL
++    ├── room-extension.ts      # 'room' extension: ContributionsDoc, SourceLedgerDoc, list_contributions tool, source attribution hook
++    ├��─ bridge.ts             # WS ⟷ harness protocol bridge (join, submit, steer, interrupt, fork, configure, ping)
++    └── server.ts             # boots Harness over SQLite, installs extension, resume(), serves static, WS /ws
++```
++
++## WS Protocol (as implemented)
++
++Client → server:
++- `{t:"join", room}` — Attach to root conversation, receive view snapshot + subscribe to deltas
++- `{t:"submit", content, requestId, whenBusy?}` — Exactly-once submit via Pi Durable
++- `{t:"steer", content}` — Submit with `whenBusy:"steer"`
++- `{t:"interrupt"}` — `conversation.abort()`
++- `{t:"fork", atAnswerId, content?}` — Not yet implemented (out of scope for M1); returns error
++- `{t:"configure", tools?}` — Not yet implemented; returns error
++- `{t:"ping"}` — Keepalive (no response)
++
++Server → client:
++- `{t:"view", snapshot}` — Full state (entries, live, inbox, agent, usage) on join
++- `{t:"commit", ops}` — Incremental entry changes (derived from viewState diffs)
++- `{t:"answer_delta", text}` — Streaming partial answer text from pi.live
++- `{t:"tool", id, name, output}` — Tool progress from pi.live.tools
++- `{t:"sources", refs}` — Which contributions an answer drew on (from room.source-ledger doc)
++- `{t:"error", message}` — Rejection / failure
++
++**Deviations from spec:** None. Fork and configure return explicit "not yet implemented" errors rather than silently ignoring. Commit ops use `replace /entries` instead of fine-grained per-entry ops — sufficient for the POC.
++
++## Gate Results
++
++```
++npm install      → clean (0 vulnerabilities)
++npm run typecheck → tsc --noEmit: zero errors
++npm run build     → tsc: zero errors  
++Server boot      → boots, serves index.html, opens /ws (verified with curl)
++npm run smoke    → 15 passed, 0 failed
++```
++
++### Smoke Test Details
++```
++  ✓ Server boots and logs ready message
++  ✓ Server logs no-model-key warning
++  ✓ GET / returns 200
++  ✓ Response contains <title>Stoa
++  ✓ WebSocket connects to /ws
++  ✓ Receives {t:'view'} snapshot after join
++  ✓ Snapshot has entries array
++  ✓ Snapshot has live field
++  ✓ Snapshot has inbox field
++  ✓ Snapshot has agent field
++  ✓ Snapshot has usage field
++  ✓ No protocol errors received
++  ✓ Received commit or delta events after submit
++  ✓ Ping does not crash connection
++  ✓ Server exits cleanly
++```
++
++No PROVIDER_KEY was set — model answers absent (expected). The smoke verifies boot, WS handshake, view snapshot, protocol event flow, and clean shutdown.
++
++## How to Run the Demo
++
++```bash
++cd prototype
++npm install && npm run build
++
++# Without model key (server boots, UI loads, model calls fail gracefully):
++PORT=8080 npm start
++# Open http://localhost:8080
++
++# With model key (full answer streaming):
++PROVIDER_KEY=sk-... PORT=8080 npm start
++# Open http://localhost:8080 in two tabs
++```
++
++## PR URL
++
++https://github.com/Joera/stoa/pull/1
+diff --git a/prototype/docker-compose.yml b/prototype/docker-compose.yml
+new file mode 100644
+index 0000000..4aeefc0
+--- /dev/null
++++ b/prototype/docker-compose.yml
+@@ -0,0 +1,14 @@
++services:
++  stoa:
++    build: .
++    ports:
++      - "8080:8080"
++    environment:
++      - PROVIDER_KEY=${PROVIDER_KEY:-}
++      - MODEL=${MODEL:-gpt-5-mini}
++    volumes:
++      - stoa-data:/data
++    restart: unless-stopped
++
++volumes:
++  stoa-data:
+diff --git a/prototype/package-lock.json b/prototype/package-lock.json
+new file mode 100644
+index 0000000..dc759e6
+--- /dev/null
++++ b/prototype/package-lock.json
+@@ -0,0 +1,1645 @@
++{
++  "name": "stoa-poc",
++  "version": "0.1.0",
++  "lockfileVersion": 3,
++  "requires": true,
++  "packages": {
++    "": {
++      "name": "stoa-poc",
++      "version": "0.1.0",
++      "dependencies": {
++        "@earendil-works/chord": "1.0.0",
++        "@earendil-works/pi-ai": "1.0.0",
++        "@earendil-works/pi-durable": "1.0.0",
++        "ws": "^8.18.0"
++      },
++      "devDependencies": {
++        "@types/node": "^22.20.5",
++        "@types/ws": "^8.18.2",
++        "typescript": "^5.9.3"
++      }
++    },
++    "node_modules/@anthropic-ai/sdk": {
++      "version": "0.124.0",
++      "resolved": "https://registry.npmjs.org/@anthropic-ai/sdk/-/sdk-0.124.0.tgz",
++      "integrity": "sha512-cN5O8i9UVxHeOQAzj/XjshWXG8KiibJDw9OGpH2Z/eR3n/RBxdoLxDJOcfqAJWvjaMDFfHTBADU04hWRJVkDyA==",
++      "license": "MIT",
++      "dependencies": {
++        "json-schema-to-ts": "^3.1.1",
++        "standardwebhooks": "^1.0.0"
++      },
++      "bin": {
++        "anthropic-ai-sdk": "bin/cli"
++      },
++      "peerDependencies": {
++        "zod": "^3.25.0 || ^4.0.0"
++      },
++      "peerDependenciesMeta": {
++        "zod": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/@aws-sdk/client-bedrock-runtime": {
++      "version": "3.1127.0",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/client-bedrock-runtime/-/client-bedrock-runtime-3.1127.0.tgz",
++      "integrity": "sha512-IDl/lrPb90aH+pZFHGNDmgH9nAUQj5PlZH1sJ3w7RikctyjHSnY3oNjZhrLoaBoQn/rNK0zsP6OHEqEhj2tdLA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.977.9",
++        "@aws-sdk/credential-provider-node": "^3.972.82",
++        "@aws-sdk/eventstream-handler-node": "^3.972.34",
++        "@aws-sdk/middleware-eventstream": "^3.972.29",
++        "@aws-sdk/middleware-websocket": "^3.972.52",
++        "@aws-sdk/token-providers": "3.1127.0",
++        "@aws-sdk/types": "^3.974.5",
++        "@smithy/core": "^3.33.3",
++        "@smithy/fetch-http-handler": "^5.7.2",
++        "@smithy/node-http-handler": "^4.11.3",
++        "@smithy/types": "^4.17.2",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/core": {
++      "version": "3.978.1",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/core/-/core-3.978.1.tgz",
++      "integrity": "sha512-LbY9aGsEiznDWmUc30Nwv3aIX/+dbwTx8KfS0yOC3NPYMO+O91e6jkT1azf34FwjOndq8/Q+RcVVZz5xnerwdg==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/types": "^3.974.6",
++        "@aws-sdk/xml-builder": "^3.972.41",
++        "@aws/lambda-invoke-store": "^0.3.0",
++        "@smithy/core": "^3.35.0",
++        "@smithy/signature-v4": "^5.7.3",
++        "@smithy/types": "^4.19.0",
++        "bowser": "^2.11.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-env": {
++      "version": "3.972.72",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-env/-/credential-provider-env-3.972.72.tgz",
++      "integrity": "sha512-xTKO/FWJPozTIXbozVnVGoNBhaGba8TBcx+KyUjRVeOlXE+dUc7GTR1cLvu0uTdIdmemzaFbqqCshXeZA1fZew==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.978.1",
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/core": "^3.35.0",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-http": {
++      "version": "3.972.74",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-http/-/credential-provider-http-3.972.74.tgz",
++      "integrity": "sha512-u91E/hT8f4d1xy0Jl7VG4nVKJ3lxbrZkoBTeSVoJdWBiSEUMwMS/9+e0H/aJVQV//Lt5wuzP+E69v4aRSsNTmw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.978.1",
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/core": "^3.35.0",
++        "@smithy/fetch-http-handler": "^5.8.0",
++        "@smithy/node-http-handler": "^4.12.1",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-ini": {
++      "version": "3.973.17",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-ini/-/credential-provider-ini-3.973.17.tgz",
++      "integrity": "sha512-ged4KXdBkvIC81bLvNHHuQKdKak/VXhQTR1NWYTTqW0474nlmsxy9O/vlgTIohDDWH3xpBdtVMZRyjb+DnocDA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.978.1",
++        "@aws-sdk/credential-provider-env": "^3.972.72",
++        "@aws-sdk/credential-provider-http": "^3.972.74",
++        "@aws-sdk/credential-provider-login": "^3.972.79",
++        "@aws-sdk/credential-provider-process": "^3.972.72",
++        "@aws-sdk/credential-provider-sso": "^3.973.16",
++        "@aws-sdk/credential-provider-web-identity": "^3.972.78",
++        "@aws-sdk/nested-clients": "^3.997.46",
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/core": "^3.35.0",
++        "@smithy/credential-provider-imds": "^4.5.2",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-login": {
++      "version": "3.972.79",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-login/-/credential-provider-login-3.972.79.tgz",
++      "integrity": "sha512-L+Z85anONJd8MaiuraO4wRxATCdEejBZ3K3eymzWI5JPXa9sOS9CkIm72PBKqXKX+Z9p9NGMX5AIMXm0LEflgw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.978.1",
++        "@aws-sdk/nested-clients": "^3.997.46",
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/core": "^3.35.0",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-node": {
++      "version": "3.972.84",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-node/-/credential-provider-node-3.972.84.tgz",
++      "integrity": "sha512-oHt854odINVwzwsh+c5x69j0ajm4DbqqqVJ+O1ECsCIZeMDAbzFpXItaqP7UZstJj/ATdTk/KFSH0LaNAgV+kA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/credential-provider-env": "^3.972.72",
++        "@aws-sdk/credential-provider-http": "^3.972.74",
++        "@aws-sdk/credential-provider-ini": "^3.973.17",
++        "@aws-sdk/credential-provider-process": "^3.972.72",
++        "@aws-sdk/credential-provider-sso": "^3.973.16",
++        "@aws-sdk/credential-provider-web-identity": "^3.972.78",
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/core": "^3.35.0",
++        "@smithy/credential-provider-imds": "^4.5.2",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-process": {
++      "version": "3.972.72",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-process/-/credential-provider-process-3.972.72.tgz",
++      "integrity": "sha512-rLIp2xbMjX/k9/od7APpqq1ZgXXnV0pOL1Th3ZsL8Wu0TRtBsDTVS8iPqcfRFcHakFxPvR04OSTv2ka2qOb/2A==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.978.1",
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/core": "^3.35.0",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-sso": {
++      "version": "3.973.16",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-sso/-/credential-provider-sso-3.973.16.tgz",
++      "integrity": "sha512-IGihaJfFZYacJJr/odqILCoK7W/mvrZ7cuK7ECn3sAu4vLC6u0V8bS7mCGbdugJ8Aum2tnvqmx0F2MRFp2rn9g==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.978.1",
++        "@aws-sdk/nested-clients": "^3.997.46",
++        "@aws-sdk/token-providers": "3.1138.0",
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/core": "^3.35.0",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-sso/node_modules/@aws-sdk/token-providers": {
++      "version": "3.1138.0",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/token-providers/-/token-providers-3.1138.0.tgz",
++      "integrity": "sha512-GpyAr0DD63YOEmYFM6Df+gJuIgC92MMTiBK4FTKfxii5MJ9ge20epR7LyroulscYlG89J+ZB2ivFDPjvfQhzdw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.978.1",
++        "@aws-sdk/nested-clients": "^3.997.46",
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/core": "^3.35.0",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/credential-provider-web-identity": {
++      "version": "3.972.78",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/credential-provider-web-identity/-/credential-provider-web-identity-3.972.78.tgz",
++      "integrity": "sha512-/y9WvNtlcPBGLR0qc1a+9J/xtYZfVczvLUOuXaVWylzttH7ewsxwHtjmiJSolNrVSDorIxHGHMU61CbonRkmwA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.978.1",
++        "@aws-sdk/nested-clients": "^3.997.46",
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/core": "^3.35.0",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/eventstream-handler-node": {
++      "version": "3.972.35",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/eventstream-handler-node/-/eventstream-handler-node-3.972.35.tgz",
++      "integrity": "sha512-a8xilRoRaalvSPZdfrs0VY3/BPc0uYhXW56Z/k6nmZ5Vk430LHeowf9APIPq8utM3tMJSNGSSuJMlB9YrPsN+A==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/core": "^3.35.0",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/middleware-eventstream": {
++      "version": "3.972.30",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/middleware-eventstream/-/middleware-eventstream-3.972.30.tgz",
++      "integrity": "sha512-B6gvZlcnRBNWraKgyEjKsbhv+VjtbyHmpU7hmtTHzXpDSxHPpCJnYLpglEOOsF+SFne20DbZC5IVC1aNr2Pb4A==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/core": "^3.35.0",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/middleware-websocket": {
++      "version": "3.972.54",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/middleware-websocket/-/middleware-websocket-3.972.54.tgz",
++      "integrity": "sha512-bhESdru8u8KosziH8jcVta/NM/dNreeRz2+2aU86si5bfBYOiJ6IiqD+9U4URUcU5WJO3Yw+jO3GLDIHlscXMQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.978.1",
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/core": "^3.35.0",
++        "@smithy/fetch-http-handler": "^5.8.0",
++        "@smithy/signature-v4": "^5.7.3",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">= 14.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/nested-clients": {
++      "version": "3.997.46",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/nested-clients/-/nested-clients-3.997.46.tgz",
++      "integrity": "sha512-oRxtBcka/JGHGs9l9p9IVajGoTP8vTPmoAzdHGy4Qcy9P5vPnDf6nhIeM/COQNY9k/OahImTRaLkHftoXvfcmQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.978.1",
++        "@aws-sdk/signature-v4-multi-region": "^3.996.47",
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/core": "^3.35.0",
++        "@smithy/fetch-http-handler": "^5.8.0",
++        "@smithy/node-http-handler": "^4.12.1",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/signature-v4-multi-region": {
++      "version": "3.996.47",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/signature-v4-multi-region/-/signature-v4-multi-region-3.996.47.tgz",
++      "integrity": "sha512-Zk08macMvQTHzQJCLJVkOlviVoqwYMrpXv4lmLN7b7sAbiMoOK7Go0NYdR5UeF+MW8LIbRmwrNy9u/5VvX1U5g==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/types": "^3.974.6",
++        "@smithy/signature-v4": "^5.7.3",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/token-providers": {
++      "version": "3.1127.0",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/token-providers/-/token-providers-3.1127.0.tgz",
++      "integrity": "sha512-Dv2TMWBshJ+tF6ahs2Sy5bh4Iabsd4GAQqVvE9XZmYmnoaVbpS2QKIKE/HRacc7bTtbjEEvP+laGzHvHlf1CiQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@aws-sdk/core": "^3.977.9",
++        "@aws-sdk/nested-clients": "^3.997.44",
++        "@aws-sdk/types": "^3.974.5",
++        "@smithy/core": "^3.33.3",
++        "@smithy/types": "^4.17.2",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/types": {
++      "version": "3.974.6",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/types/-/types-3.974.6.tgz",
++      "integrity": "sha512-v/clNZzZnDxGyvpHMOGpJKVXFAExJzUNAAjaWGdcx8QAcXLGwTaOkw33p5SHAi0YAioK32xB3hWwOekRVfmfKg==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws-sdk/xml-builder": {
++      "version": "3.972.41",
++      "resolved": "https://registry.npmjs.org/@aws-sdk/xml-builder/-/xml-builder-3.972.41.tgz",
++      "integrity": "sha512-ctjVSyCMegrWfXlx6VqzSBFI6UqmQ5ZlnfMhdLIiWmhoH8UAQxSCP5N3OpG7X3k4LnS7ou74C4mt20+bfTW2aQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      }
++    },
++    "node_modules/@aws/lambda-invoke-store": {
++      "version": "0.3.0",
++      "resolved": "https://registry.npmjs.org/@aws/lambda-invoke-store/-/lambda-invoke-store-0.3.0.tgz",
++      "integrity": "sha512-sl4Bm6yiMNYrZKkqqDFWN0UfnWhlS8ivKxrYl+6t0gCLrqr8y3B2IqZZbFRkfaVVp7C/baApyh71P+LeE1A2sQ==",
++      "license": "Apache-2.0",
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@babel/runtime": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/runtime/-/runtime-7.29.7.tgz",
++      "integrity": "sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
++    "node_modules/@earendil-works/chord": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/@earendil-works/chord/-/chord-1.0.0.tgz",
++      "integrity": "sha512-BIfWfrByM0pKq6tfKYXuwx0ed2CvaqIM3EDA7Dps+fP+d3CiPWdlHi1cDsJC05llqKJoRz5//G0hz0yQwwjISQ==",
++      "license": "MIT",
++      "dependencies": {
++        "esbuild": "0.28.2"
++      },
++      "engines": {
++        "node": ">=22.19.0"
++      }
++    },
++    "node_modules/@earendil-works/pi-ai": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-1.0.0.tgz",
++      "integrity": "sha512-3/W1vdDaVtpeMd23ElvJC12HLA5yS/BGqqcXF+0SK082dN7cbgNcCwguTBRBC258Ke8SzSvUW1B75iAf8w8IxA==",
++      "license": "MIT",
++      "dependencies": {
++        "@anthropic-ai/sdk": "0.124.0",
++        "@aws-sdk/client-bedrock-runtime": "3.1127.0",
++        "@earendil-works/pi-telemetry": "^1.0.0",
++        "@google/genai": "2.21.0",
++        "@smithy/node-http-handler": "4.12.1",
++        "http-proxy-agent": "9.1.0",
++        "https-proxy-agent": "9.1.0",
++        "openai": "7.19.0",
++        "partial-json": "0.1.7",
++        "typebox": "1.3.27"
++      },
++      "bin": {
++        "pi-ai": "dist/cli.js"
++      },
++      "engines": {
++        "node": ">=22.19.0"
++      }
++    },
++    "node_modules/@earendil-works/pi-durable": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/@earendil-works/pi-durable/-/pi-durable-1.0.0.tgz",
++      "integrity": "sha512-PvjCIdy5jRsBoJDRpCCI0RfwBax2ZPnMT5aw/tRQxcQOqbGGj2mq1z0WuVxoyimWWi+WYSYT2VySg3RO1qzySw==",
++      "license": "MIT",
++      "dependencies": {
++        "@earendil-works/chord": "^1.0.0",
++        "@earendil-works/pi-ai": "^1.0.0",
++        "diff": "8.0.4",
++        "typebox": "1.3.27"
++      },
++      "engines": {
++        "node": ">=22.19.0"
++      }
++    },
++    "node_modules/@earendil-works/pi-telemetry": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/@earendil-works/pi-telemetry/-/pi-telemetry-1.0.0.tgz",
++      "integrity": "sha512-WjNBj5TYIiPZFQEz2WlULcDwPLaKwIlmsKjVeYM+LJSbnSp38kWsHUJysIDGnu23IcLbKoPtywsvYfUJCeZePA==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=22.19.0"
++      }
++    },
++    "node_modules/@esbuild/aix-ppc64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/aix-ppc64/-/aix-ppc64-0.28.2.tgz",
++      "integrity": "sha512-XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ==",
++      "cpu": [
++        "ppc64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "aix"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/android-arm": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/android-arm/-/android-arm-0.28.2.tgz",
++      "integrity": "sha512-kXXoiPVVGQcnIYGOeaovwOURpniDBpSq4A03qkQ+BMQqtGG6HYap3xne9C1O1yo4TR3qxlCX5IqqmX6fFo2Lqg==",
++      "cpu": [
++        "arm"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/android-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/android-arm64/-/android-arm64-0.28.2.tgz",
++      "integrity": "sha512-5YfKeeI8qWfBZIX+u2xZC3Zlb3Os/gLS2sbEKM+I4ZOcsWmHS2WLysCcQZDAFRslDUU5Oiq44gf6PYN1vGwG5A==",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/android-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/android-x64/-/android-x64-0.28.2.tgz",
++      "integrity": "sha512-O387ite7SzUyCcy3JQX4P4bLtEA7bLLkx+esve5JHnyYfNTxcVpXZo9jhdB0lTKN44gztELTdU7nS8Nr16Fs1Q==",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/darwin-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.28.2.tgz",
++      "integrity": "sha512-n4KqkOQrraxHJcgjM1RvwbigfQKIKJVpM7xp+KsxiyUSrRdIXnt73VhrPAx0fV44hgfmIVKjxMN9J1t5jySVkw==",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/darwin-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/darwin-x64/-/darwin-x64-0.28.2.tgz",
++      "integrity": "sha512-uq6suIWYP37qzGddBKPw5QEQPi6HiLGsO7UmkpfyaYNQ3D+rN6w6WfwH+nuqcGXWvawGwxOEroO4YGnFh95azw==",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/freebsd-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/freebsd-arm64/-/freebsd-arm64-0.28.2.tgz",
++      "integrity": "sha512-n+I0BTSRIoy+d6RPKnEVwql5UwBJolytvY4mAOIEJorKlqgPII8ix6slVVrfZ5Tnj7glIZvloylbB/EJPMWEXw==",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "freebsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/freebsd-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/freebsd-x64/-/freebsd-x64-0.28.2.tgz",
++      "integrity": "sha512-78XJTJkvPs0kz2w61301PJjXl4g7q3JqiYMZ/M/yVI73EHBrCRTgkhu9oqG7vPqq+a/yadEW8aD+agKlk5xrmg==",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "freebsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-arm": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-arm/-/linux-arm-0.28.2.tgz",
++      "integrity": "sha512-XlDnu2q5yoqems+xay6wSAcg9DDD7K9RLKZEBOMZm3ckNpJBvOX20tSfby8KfrrhINDyv9V2YVZKY/SpoGJI8w==",
++      "cpu": [
++        "arm"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-arm64/-/linux-arm64-0.28.2.tgz",
++      "integrity": "sha512-pW4AC0P3it8c7do9MVM4p51FzHzdM/TZrerurgRcHJ2WTa1VQ1CIq18xncfpBJw4ojkiZZrKW2yIBWBP92j6Ug==",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-ia32": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-ia32/-/linux-ia32-0.28.2.tgz",
++      "integrity": "sha512-CYbnj78HsIeA+DhgUKgFCfvNsTHFhMMrinUrMZpDXJXKN8T3XViTZ/+wtHeVxEWY8ewSzTFN+nRmSwO2tZaLUQ==",
++      "cpu": [
++        "ia32"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-loong64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-loong64/-/linux-loong64-0.28.2.tgz",
++      "integrity": "sha512-buwkd8nsph4R+ajRvw0qM5Hja/TXQow3ptzWO2EbG/cqcIkHloRrdlBtQlshyYGTNFvfkfJ5tpPLVkY4DtsPfQ==",
++      "cpu": [
++        "loong64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-mips64el": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-mips64el/-/linux-mips64el-0.28.2.tgz",
++      "integrity": "sha512-ZVykbDyk7519VwiNb9Lcj9m8XM6v5V9uKPvrEMkkEedVewf+0itkhahp4HDpgERXhwLRpWFypsGbG/J8s0QjJA==",
++      "cpu": [
++        "mips64el"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-ppc64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-ppc64/-/linux-ppc64-0.28.2.tgz",
++      "integrity": "sha512-CAXl+Dtd9UUuJd8pKKdwh6MLm3MUMiqMPmhZ3tTSXPqfyQ3vDl6R5hZdZ/kYojK4ofXtdfSv1tFq8XzWx3heNQ==",
++      "cpu": [
++        "ppc64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-riscv64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-riscv64/-/linux-riscv64-0.28.2.tgz",
++      "integrity": "sha512-GeXCej4IQtU1B+QlDV8W/RRvbzI3O/Stss+/bCXv4lZls5WGRtu2a+3JkA3i4qIUlMXpcHebWpF8AkJhATowuA==",
++      "cpu": [
++        "riscv64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-s390x": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-s390x/-/linux-s390x-0.28.2.tgz",
++      "integrity": "sha512-3H1weTYZPxt/WOhByszQZybS9w5lKzUn1FDMsgEChbHWQwHYQQRfBxgCcZvPhjHfKyJjIievvMmEUawJrdY9Dg==",
++      "cpu": [
++        "s390x"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.2.tgz",
++      "integrity": "sha512-4xTZr1FUmSoQW4XIWmit3tzQrUTZM+N3P0XV8xROKYF50XfI7xeO90+1bZvNwxIufQ9hDQVRJH5YhgPVF8A/HQ==",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/netbsd-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/netbsd-arm64/-/netbsd-arm64-0.28.2.tgz",
++      "integrity": "sha512-sSATRjPeDBg3pdgHoQfoYBob11Kk1FGa9lui5RIHZCoCkJa9QKlvl3/vKz2usCmYYjs7ymJR/2Nnsqe+Hjt5nw==",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "netbsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/netbsd-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/netbsd-x64/-/netbsd-x64-0.28.2.tgz",
++      "integrity": "sha512-lqnzCV+mM0gIADaKihiCg6ifgfU2L3h5E33rNQBN1Y4MaVGnzryzmvvf7UHxprpQdE8hpqLolJ9Rl+SkIRDpyw==",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "netbsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/openbsd-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/openbsd-arm64/-/openbsd-arm64-0.28.2.tgz",
++      "integrity": "sha512-AL2qJILH7lNjrDmCQDvdxMfAUIv8KMNZOvrwAQ8i8//ntL9FflhOyMJ8OZSMBb8/AWXe3/5v5S20y3zCoZWKoQ==",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "openbsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/openbsd-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/openbsd-x64/-/openbsd-x64-0.28.2.tgz",
++      "integrity": "sha512-QtiuPytchRyC4rwUKhexJdQKvDuZ6hWloi3igqPQNUJCS1/v9EiO3UTOXR6A3FoMo4fnAKbWJdqaIwhOzh8qEw==",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "openbsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/openharmony-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/openharmony-arm64/-/openharmony-arm64-0.28.2.tgz",
++      "integrity": "sha512-WkhYDmpTjLvGlScA1rwjRUmhl4k8oXR3cIbtqWmELgU/dFeHHlEllxDvdWcNJV9rbzCexB5vz8gtNewWLgCT7Q==",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "openharmony"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/sunos-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/sunos-x64/-/sunos-x64-0.28.2.tgz",
++      "integrity": "sha512-GPMSkTOtMnv2U2F8gxe4Io6qmVs+YKyp832Etqqxr0hFngmXQ3rzwytelm3GIn7T4VviRUlf3sOgBOiTdvaf7g==",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "sunos"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/win32-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/win32-arm64/-/win32-arm64-0.28.2.tgz",
++      "integrity": "sha512-PIhhEkE9uPBleRBrQEJpUn7MBnibZzbGzYWPmY3x+YoVg/95zbjB4CxPPOQ8l5tYYM4mMaCthF8/1DIfBQQyWQ==",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/win32-ia32": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/win32-ia32/-/win32-ia32-0.28.2.tgz",
++      "integrity": "sha512-YmJbfTlvU7Sdn9BB+4PRES4oB6pxgS37MAONj+hBr/cpXS1aBPKXxNnDbu+QCWPj0o9dgyxeq79g6c5P8KeuYA==",
++      "cpu": [
++        "ia32"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/win32-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/win32-x64/-/win32-x64-0.28.2.tgz",
++      "integrity": "sha512-5ebpxr3nWMzrL/rnUI755Jkuee0bHL/Gq0WTF9lvcpv73wAp5eu8MfBUgWK9bhWvZjj7yX8etf/8tI8Ney695g==",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@google/genai": {
++      "version": "2.21.0",
++      "resolved": "https://registry.npmjs.org/@google/genai/-/genai-2.21.0.tgz",
++      "integrity": "sha512-+PDtco2/Z0ONdzCGekCoCT+O1VJS9xJQNN4XzQpXG/t3El/SWWMkCWlFRO1KmivOHPa4Q0VjUYu1HBKCZ/v33Q==",
++      "hasInstallScript": true,
++      "license": "Apache-2.0",
++      "dependencies": {
++        "google-auth-library": "^10.3.0",
++        "p-retry": "^4.6.2",
++        "protobufjs": "^7.5.4",
++        "ws": "^8.18.0"
++      },
++      "engines": {
++        "node": ">=20.0.0"
++      },
++      "peerDependencies": {
++        "@modelcontextprotocol/sdk": "^1.25.2"
++      },
++      "peerDependenciesMeta": {
++        "@modelcontextprotocol/sdk": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/@protobufjs/aspromise": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/@protobufjs/aspromise/-/aspromise-1.1.2.tgz",
++      "integrity": "sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==",
++      "license": "BSD-3-Clause"
++    },
++    "node_modules/@protobufjs/base64": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/@protobufjs/base64/-/base64-1.1.2.tgz",
++      "integrity": "sha512-AZkcAA5vnN/v4PDqKyMR5lx7hZttPDgClv83E//FMNhR2TMcLUhfRUBHCmSl0oi9zMgDDqRUJkSxO3wm85+XLg==",
++      "license": "BSD-3-Clause"
++    },
++    "node_modules/@protobufjs/codegen": {
++      "version": "2.0.5",
++      "resolved": "https://registry.npmjs.org/@protobufjs/codegen/-/codegen-2.0.5.tgz",
++      "integrity": "sha512-zgXFLzW3Ap33e6d0Wlj4MGIm6Ce8O89n/apUaGNB/jx+hw+ruWEp7EwGUshdLKVRCxZW12fp9r40E1mQrf/34g==",
++      "license": "BSD-3-Clause"
++    },
++    "node_modules/@protobufjs/eventemitter": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/@protobufjs/eventemitter/-/eventemitter-1.1.1.tgz",
++      "integrity": "sha512-vW1GmwMZNnL+gMRaovlh9yZX74kc+TTU3FObkkurpMaRtBfLP3ldjS9KQWlwZgraRE0+dheEEoAxdzcJQ8eXZg==",
++      "license": "BSD-3-Clause"
++    },
++    "node_modules/@protobufjs/fetch": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/@protobufjs/fetch/-/fetch-1.1.1.tgz",
++      "integrity": "sha512-GpptLrs57adMSuHi3VNj0mAF8dwh36LMaYF6XyJ6JMWlVsc+t42tm1HSEDmOs3A8fC9yyeisgLhsTVQokOZ0zw==",
++      "license": "BSD-3-Clause",
++      "dependencies": {
++        "@protobufjs/aspromise": "^1.1.1"
++      }
++    },
++    "node_modules/@protobufjs/float": {
++      "version": "1.0.2",
++      "resolved": "https://registry.npmjs.org/@protobufjs/float/-/float-1.0.2.tgz",
++      "integrity": "sha512-Ddb+kVXlXst9d+R9PfTIxh1EdNkgoRe5tOX6t01f1lYWOvJnSPDBlG241QLzcyPdoNTsblLUdujGSE4RzrTZGQ==",
++      "license": "BSD-3-Clause"
++    },
++    "node_modules/@protobufjs/path": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/@protobufjs/path/-/path-1.1.2.tgz",
++      "integrity": "sha512-6JOcJ5Tm08dOHAbdR3GrvP+yUUfkjG5ePsHYczMFLq3ZmMkAD98cDgcT2iA1lJ9NVwFd4tH/iSSoe44YWkltEA==",
++      "license": "BSD-3-Clause"
++    },
++    "node_modules/@protobufjs/pool": {
++      "version": "1.1.0",
++      "resolved": "https://registry.npmjs.org/@protobufjs/pool/-/pool-1.1.0.tgz",
++      "integrity": "sha512-0kELaGSIDBKvcgS4zkjz1PeddatrjYcmMWOlAuAPwAeccUrPHdUqo/J6LiymHHEiJT5NrF1UVwxY14f+fy4WQw==",
++      "license": "BSD-3-Clause"
++    },
++    "node_modules/@protobufjs/utf8": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/@protobufjs/utf8/-/utf8-1.1.2.tgz",
++      "integrity": "sha512-b1UQwcEZ4yCnMCD8DAL1VlbvBJE9/IX4FTIp7BG1xYpf29SLazLSrqUkj4w7Y5y7cCVP6E5tcqqcI0xemPkHug==",
++      "license": "BSD-3-Clause"
++    },
++    "node_modules/@smithy/core": {
++      "version": "3.35.1",
++      "resolved": "https://registry.npmjs.org/@smithy/core/-/core-3.35.1.tgz",
++      "integrity": "sha512-i4YPS4B6ts7bjn7UwLnGjiZdprOvHvgGobFZsYK3GIY3E5hIqtj0rReU69BcTpGp+fvtraSNXeG1l+jtJvF55w==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/credential-provider-imds": {
++      "version": "4.5.2",
++      "resolved": "https://registry.npmjs.org/@smithy/credential-provider-imds/-/credential-provider-imds-4.5.2.tgz",
++      "integrity": "sha512-A9uSdn72ozbRUSit0eib0TW7nXuNPlaeM0zcGkJ+nE6tFcSDbnmtwoxbTCFBukVQcszDAyvsd7+rTduPTXpygg==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/core": "^3.33.2",
++        "@smithy/types": "^4.17.2",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/fetch-http-handler": {
++      "version": "5.8.0",
++      "resolved": "https://registry.npmjs.org/@smithy/fetch-http-handler/-/fetch-http-handler-5.8.0.tgz",
++      "integrity": "sha512-ycSJu3tFAQ4v04CBB0agqFMVsSQ1iG3yw+SpgxRqKfaURpQD4CZ8Wn0zPMmSnOuTpTh65Vz+EA0rMrw089wvkA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/core": "^3.33.3",
++        "@smithy/types": "^4.18.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/node-http-handler": {
++      "version": "4.12.1",
++      "resolved": "https://registry.npmjs.org/@smithy/node-http-handler/-/node-http-handler-4.12.1.tgz",
++      "integrity": "sha512-ThMkboGeONWXAelq9FvGsuJC4rOi+qyC4/zhUF58xYpxUg5sQKx2VXZYJmtNjr4dSuBJ1HeJXETQILCz3wOHvw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/core": "^3.33.3",
++        "@smithy/types": "^4.18.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/signature-v4": {
++      "version": "5.7.4",
++      "resolved": "https://registry.npmjs.org/@smithy/signature-v4/-/signature-v4-5.7.4.tgz",
++      "integrity": "sha512-tHy0K0VtqNd5Y7Y41h0a0Lhh0L1GzC08dTWg0F7vRJWFtTENg7IZikf3wQkanYIRdb7ngoIPMTmqgUi401fEeQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "@smithy/core": "^3.35.0",
++        "@smithy/types": "^4.19.0",
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@smithy/types": {
++      "version": "4.19.0",
++      "resolved": "https://registry.npmjs.org/@smithy/types/-/types-4.19.0.tgz",
++      "integrity": "sha512-r7jh49VJxGerfAcTQA6gXcKc+98zOp/tqRwzYjgOE+iSQsP6cEU1hq2QzbuipmP68QtYdY9wKEhiCQZIzHgZ4Q==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "tslib": "^2.6.2"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      }
++    },
++    "node_modules/@stablelib/base64": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/@stablelib/base64/-/base64-1.0.1.tgz",
++      "integrity": "sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ==",
++      "license": "MIT"
++    },
++    "node_modules/@types/node": {
++      "version": "22.20.5",
++      "resolved": "https://registry.npmjs.org/@types/node/-/node-22.20.5.tgz",
++      "integrity": "sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA==",
++      "license": "MIT",
++      "dependencies": {
++        "undici-types": "~6.21.0"
++      }
++    },
++    "node_modules/@types/retry": {
++      "version": "0.12.0",
++      "resolved": "https://registry.npmjs.org/@types/retry/-/retry-0.12.0.tgz",
++      "integrity": "sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==",
++      "license": "MIT"
++    },
++    "node_modules/@types/ws": {
++      "version": "8.18.2",
++      "resolved": "https://registry.npmjs.org/@types/ws/-/ws-8.18.2.tgz",
++      "integrity": "sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@types/node": "*"
++      }
++    },
++    "node_modules/agent-base": {
++      "version": "9.0.0",
++      "resolved": "https://registry.npmjs.org/agent-base/-/agent-base-9.0.0.tgz",
++      "integrity": "sha512-TQf59BsZnytt8GdJKLPfUZ54g/iaUL2OWDSFCCvMOhsHduDQxO8xC4PNeyIkVcA5KwL2phPSv0douC0fgWzmnA==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/base64-js": {
++      "version": "1.5.1",
++      "resolved": "https://registry.npmjs.org/base64-js/-/base64-js-1.5.1.tgz",
++      "integrity": "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/feross"
++        },
++        {
++          "type": "patreon",
++          "url": "https://www.patreon.com/feross"
++        },
++        {
++          "type": "consulting",
++          "url": "https://feross.org/support"
++        }
++      ],
++      "license": "MIT"
++    },
++    "node_modules/bignumber.js": {
++      "version": "9.3.1",
++      "resolved": "https://registry.npmjs.org/bignumber.js/-/bignumber.js-9.3.1.tgz",
++      "integrity": "sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ==",
++      "license": "MIT",
++      "engines": {
++        "node": "*"
++      }
++    },
++    "node_modules/bowser": {
++      "version": "2.14.1",
++      "resolved": "https://registry.npmjs.org/bowser/-/bowser-2.14.1.tgz",
++      "integrity": "sha512-tzPjzCxygAKWFOJP011oxFHs57HzIhOEracIgAePE4pqB3LikALKnSzUyU4MGs9/iCEUuHlAJTjTc5M+u7YEGg==",
++      "license": "MIT"
++    },
++    "node_modules/buffer-equal-constant-time": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/buffer-equal-constant-time/-/buffer-equal-constant-time-1.0.1.tgz",
++      "integrity": "sha512-zRpUiDwd/xk6ADqPMATG8vc9VPrkck7T07OIx0gnjmJAnHnTVXNQG3vfvWNuiZIkwu9KrKdA1iJKfsfTVxE6NA==",
++      "license": "BSD-3-Clause"
++    },
++    "node_modules/data-uri-to-buffer": {
++      "version": "4.0.1",
++      "resolved": "https://registry.npmjs.org/data-uri-to-buffer/-/data-uri-to-buffer-4.0.1.tgz",
++      "integrity": "sha512-0R9ikRb668HB7QDxT1vkpuUBtqc53YyAwMwGeUFKRojY/NWKvdZ+9UYtRfGmhqNbRkTSVpMbmyhXipFFv2cb/A==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 12"
++      }
++    },
++    "node_modules/debug": {
++      "version": "4.4.3",
++      "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
++      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
++      "license": "MIT",
++      "dependencies": {
++        "ms": "^2.1.3"
++      },
++      "engines": {
++        "node": ">=6.0"
++      },
++      "peerDependenciesMeta": {
++        "supports-color": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/diff": {
++      "version": "8.0.4",
++      "resolved": "https://registry.npmjs.org/diff/-/diff-8.0.4.tgz",
++      "integrity": "sha512-DPi0FmjiSU5EvQV0++GFDOJ9ASQUVFh5kD+OzOnYdi7n3Wpm9hWWGfB/O2blfHcMVTL5WkQXSnRiK9makhrcnw==",
++      "license": "BSD-3-Clause",
++      "engines": {
++        "node": ">=0.3.1"
++      }
++    },
++    "node_modules/ecdsa-sig-formatter": {
++      "version": "1.0.11",
++      "resolved": "https://registry.npmjs.org/ecdsa-sig-formatter/-/ecdsa-sig-formatter-1.0.11.tgz",
++      "integrity": "sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "safe-buffer": "^5.0.1"
++      }
++    },
++    "node_modules/esbuild": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz",
++      "integrity": "sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA==",
++      "hasInstallScript": true,
++      "license": "MIT",
++      "bin": {
++        "esbuild": "bin/esbuild"
++      },
++      "engines": {
++        "node": ">=18"
++      },
++      "optionalDependencies": {
++        "@esbuild/aix-ppc64": "0.28.2",
++        "@esbuild/android-arm": "0.28.2",
++        "@esbuild/android-arm64": "0.28.2",
++        "@esbuild/android-x64": "0.28.2",
++        "@esbuild/darwin-arm64": "0.28.2",
++        "@esbuild/darwin-x64": "0.28.2",
++        "@esbuild/freebsd-arm64": "0.28.2",
++        "@esbuild/freebsd-x64": "0.28.2",
++        "@esbuild/linux-arm": "0.28.2",
++        "@esbuild/linux-arm64": "0.28.2",
++        "@esbuild/linux-ia32": "0.28.2",
++        "@esbuild/linux-loong64": "0.28.2",
++        "@esbuild/linux-mips64el": "0.28.2",
++        "@esbuild/linux-ppc64": "0.28.2",
++        "@esbuild/linux-riscv64": "0.28.2",
++        "@esbuild/linux-s390x": "0.28.2",
++        "@esbuild/linux-x64": "0.28.2",
++        "@esbuild/netbsd-arm64": "0.28.2",
++        "@esbuild/netbsd-x64": "0.28.2",
++        "@esbuild/openbsd-arm64": "0.28.2",
++        "@esbuild/openbsd-x64": "0.28.2",
++        "@esbuild/openharmony-arm64": "0.28.2",
++        "@esbuild/sunos-x64": "0.28.2",
++        "@esbuild/win32-arm64": "0.28.2",
++        "@esbuild/win32-ia32": "0.28.2",
++        "@esbuild/win32-x64": "0.28.2"
++      }
++    },
++    "node_modules/extend": {
++      "version": "3.0.2",
++      "resolved": "https://registry.npmjs.org/extend/-/extend-3.0.2.tgz",
++      "integrity": "sha512-fjquC59cD7CyW6urNXK0FBufkZcoiGG80wTuPujX590cB5Ttln20E2UB4S/WARVqhXffZl2LNgS+gQdPIIim/g==",
++      "license": "MIT"
++    },
++    "node_modules/fast-sha256": {
++      "version": "1.3.0",
++      "resolved": "https://registry.npmjs.org/fast-sha256/-/fast-sha256-1.3.0.tgz",
++      "integrity": "sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ==",
++      "license": "Unlicense"
++    },
++    "node_modules/fetch-blob": {
++      "version": "3.2.0",
++      "resolved": "https://registry.npmjs.org/fetch-blob/-/fetch-blob-3.2.0.tgz",
++      "integrity": "sha512-7yAQpD2UMJzLi1Dqv7qFYnPbaPx7ZfFK6PiIxQ4PfkGPyNyl2Ugx+a/umUonmKqjhM4DnfbMvdX6otXq83soQQ==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/jimmywarting"
++        },
++        {
++          "type": "paypal",
++          "url": "https://paypal.me/jimmywarting"
++        }
++      ],
++      "license": "MIT",
++      "dependencies": {
++        "node-domexception": "^1.0.0",
++        "web-streams-polyfill": "^3.0.3"
++      },
++      "engines": {
++        "node": "^12.20 || >= 14.13"
++      }
++    },
++    "node_modules/formdata-polyfill": {
++      "version": "4.0.10",
++      "resolved": "https://registry.npmjs.org/formdata-polyfill/-/formdata-polyfill-4.0.10.tgz",
++      "integrity": "sha512-buewHzMvYL29jdeQTVILecSaZKnt/RJWjoZCF5OW60Z67/GmSLBkOFM7qh1PI3zFNtJbaZL5eQu1vLfazOwj4g==",
++      "license": "MIT",
++      "dependencies": {
++        "fetch-blob": "^3.1.2"
++      },
++      "engines": {
++        "node": ">=12.20.0"
++      }
++    },
++    "node_modules/gaxios": {
++      "version": "7.3.1",
++      "resolved": "https://registry.npmjs.org/gaxios/-/gaxios-7.3.1.tgz",
++      "integrity": "sha512-kB3rzJV7d9juLZh8/56QTXCwQfxyhdOMdyYk1HdQKFtF8TJTDTZQJtixWIwXdE9Jji91mC41DUNpjleo4L4eAQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "extend": "^3.0.2",
++        "https-proxy-agent": "^7.0.1",
++        "node-fetch": "^3.3.2"
++      },
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/gaxios/node_modules/agent-base": {
++      "version": "7.1.4",
++      "resolved": "https://registry.npmjs.org/agent-base/-/agent-base-7.1.4.tgz",
++      "integrity": "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 14"
++      }
++    },
++    "node_modules/gaxios/node_modules/https-proxy-agent": {
++      "version": "7.0.6",
++      "resolved": "https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-7.0.6.tgz",
++      "integrity": "sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw==",
++      "license": "MIT",
++      "dependencies": {
++        "agent-base": "^7.1.2",
++        "debug": "4"
++      },
++      "engines": {
++        "node": ">= 14"
++      }
++    },
++    "node_modules/gcp-metadata": {
++      "version": "8.1.2",
++      "resolved": "https://registry.npmjs.org/gcp-metadata/-/gcp-metadata-8.1.2.tgz",
++      "integrity": "sha512-zV/5HKTfCeKWnxG0Dmrw51hEWFGfcF2xiXqcA3+J90WDuP0SvoiSO5ORvcBsifmx/FoIjgQN3oNOGaQ5PhLFkg==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "gaxios": "^7.0.0",
++        "google-logging-utils": "^1.0.0",
++        "json-bigint": "^1.0.0"
++      },
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/google-auth-library": {
++      "version": "10.9.1",
++      "resolved": "https://registry.npmjs.org/google-auth-library/-/google-auth-library-10.9.1.tgz",
++      "integrity": "sha512-i1ydyHrqcIxXkWh/uBmVkzCvIuq5yiK2ATndIe5XxKholrG/MTYP9xGYka4sQhrbIAgGjL2B6NOE7rFaiF3fXw==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "base64-js": "^1.3.0",
++        "ecdsa-sig-formatter": "^1.0.11",
++        "gaxios": "^7.1.4",
++        "gcp-metadata": "8.1.2",
++        "google-logging-utils": "1.1.3",
++        "jws": "^4.0.0"
++      },
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/google-logging-utils": {
++      "version": "1.1.3",
++      "resolved": "https://registry.npmjs.org/google-logging-utils/-/google-logging-utils-1.1.3.tgz",
++      "integrity": "sha512-eAmLkjDjAFCVXg7A1unxHsLf961m6y17QFqXqAXGj/gVkKFrEICfStRfwUlGNfeCEjNRa32JEWOUTlYXPyyKvA==",
++      "license": "Apache-2.0",
++      "engines": {
++        "node": ">=14"
++      }
++    },
++    "node_modules/http-proxy-agent": {
++      "version": "9.1.0",
++      "resolved": "https://registry.npmjs.org/http-proxy-agent/-/http-proxy-agent-9.1.0.tgz",
++      "integrity": "sha512-2NxoveTT58mjYT4n3RPTEfCZGLMbidoO8XEieXfpSYxu+PQJ1qpx4ypwH6N+uF9twBPIvRRgvkvW5HUTYWENig==",
++      "license": "MIT",
++      "dependencies": {
++        "agent-base": "9.0.0",
++        "debug": "^4.3.4",
++        "proxy-agent-negotiate": "1.1.0"
++      },
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/https-proxy-agent": {
++      "version": "9.1.0",
++      "resolved": "https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-9.1.0.tgz",
++      "integrity": "sha512-ag87y7cJJ9/3+GxFr8Oy4O5faDsGRGnBGsJj/YjOSsSx/5eadKLYTMPlzuR6obgoCDDm0abAAZitXXQkMOPSpA==",
++      "license": "MIT",
++      "dependencies": {
++        "agent-base": "9.0.0",
++        "debug": "^4.3.4",
++        "proxy-agent-negotiate": "1.1.0"
++      },
++      "engines": {
++        "node": ">= 20"
++      }
++    },
++    "node_modules/json-bigint": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/json-bigint/-/json-bigint-1.0.0.tgz",
++      "integrity": "sha512-SiPv/8VpZuWbvLSMtTDU8hEfrZWg/mH/nV/b4o0CYbSxu1UIQPLdwKOCIyLQX+VIPO5vrLX3i8qtqFyhdPSUSQ==",
++      "license": "MIT",
++      "dependencies": {
++        "bignumber.js": "^9.0.0"
++      }
++    },
++    "node_modules/json-schema-to-ts": {
++      "version": "3.1.1",
++      "resolved": "https://registry.npmjs.org/json-schema-to-ts/-/json-schema-to-ts-3.1.1.tgz",
++      "integrity": "sha512-+DWg8jCJG2TEnpy7kOm/7/AxaYoaRbjVB4LFZLySZlWn8exGs3A4OLJR966cVvU26N7X9TWxl+Jsw7dzAqKT6g==",
++      "license": "MIT",
++      "dependencies": {
++        "@babel/runtime": "^7.18.3",
++        "ts-algebra": "^2.0.0"
++      },
++      "engines": {
++        "node": ">=16"
++      }
++    },
++    "node_modules/jwa": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/jwa/-/jwa-2.0.1.tgz",
++      "integrity": "sha512-hRF04fqJIP8Abbkq5NKGN0Bbr3JxlQ+qhZufXVr0DvujKy93ZCbXZMHDL4EOtodSbCWxOqR8MS1tXA5hwqCXDg==",
++      "license": "MIT",
++      "dependencies": {
++        "buffer-equal-constant-time": "^1.0.1",
++        "ecdsa-sig-formatter": "1.0.11",
++        "safe-buffer": "^5.0.1"
++      }
++    },
++    "node_modules/jws": {
++      "version": "4.0.1",
++      "resolved": "https://registry.npmjs.org/jws/-/jws-4.0.1.tgz",
++      "integrity": "sha512-EKI/M/yqPncGUUh44xz0PxSidXFr/+r0pA70+gIYhjv+et7yxM+s29Y+VGDkovRofQem0fs7Uvf4+YmAdyRduA==",
++      "license": "MIT",
++      "dependencies": {
++        "jwa": "^2.0.1",
++        "safe-buffer": "^5.0.1"
++      }
++    },
++    "node_modules/long": {
++      "version": "5.3.2",
++      "resolved": "https://registry.npmjs.org/long/-/long-5.3.2.tgz",
++      "integrity": "sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==",
++      "license": "Apache-2.0"
++    },
++    "node_modules/ms": {
++      "version": "2.1.3",
++      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
++      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
++      "license": "MIT"
++    },
++    "node_modules/node-domexception": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/node-domexception/-/node-domexception-1.0.0.tgz",
++      "integrity": "sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==",
++      "deprecated": "Use your platform's native DOMException instead",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/jimmywarting"
++        },
++        {
++          "type": "github",
++          "url": "https://paypal.me/jimmywarting"
++        }
++      ],
++      "license": "MIT",
++      "engines": {
++        "node": ">=10.5.0"
++      }
++    },
++    "node_modules/node-fetch": {
++      "version": "3.3.2",
++      "resolved": "https://registry.npmjs.org/node-fetch/-/node-fetch-3.3.2.tgz",
++      "integrity": "sha512-dRB78srN/l6gqWulah9SrxeYnxeddIG30+GOqK/9OlLVyLg3HPnr6SqOWTWOXKRwC2eGYCkZ59NNuSgvSrpgOA==",
++      "license": "MIT",
++      "dependencies": {
++        "data-uri-to-buffer": "^4.0.0",
++        "fetch-blob": "^3.1.4",
++        "formdata-polyfill": "^4.0.10"
++      },
++      "engines": {
++        "node": "^12.20.0 || ^14.13.1 || >=16.0.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/node-fetch"
++      }
++    },
++    "node_modules/openai": {
++      "version": "7.19.0",
++      "resolved": "https://registry.npmjs.org/openai/-/openai-7.19.0.tgz",
++      "integrity": "sha512-MX2s3u2L5racTO0CC/SWpCOasJQBCJrqLKXK+l82cAhdeF8mPMBEe/gxMm0ZFa2xpKpOFLRjxv5afYEZbBXmbQ==",
++      "license": "Apache-2.0",
++      "engines": {
++        "node": ">=22.0.0"
++      },
++      "peerDependencies": {
++        "@aws-sdk/credential-provider-node": ">=3.972.0 <4",
++        "@smithy/hash-node": ">=4.3.0 <5",
++        "@smithy/signature-v4": ">=5.4.0 <6",
++        "undici": ">=5 <9",
++        "ws": "^8.21.0",
++        "zod": "^3.25 || ^4.0"
++      },
++      "peerDependenciesMeta": {
++        "@aws-sdk/credential-provider-node": {
++          "optional": true
++        },
++        "@smithy/hash-node": {
++          "optional": true
++        },
++        "@smithy/signature-v4": {
++          "optional": true
++        },
++        "undici": {
++          "optional": true
++        },
++        "ws": {
++          "optional": true
++        },
++        "zod": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/p-retry": {
++      "version": "4.6.2",
++      "resolved": "https://registry.npmjs.org/p-retry/-/p-retry-4.6.2.tgz",
++      "integrity": "sha512-312Id396EbJdvRONlngUx0NydfrIQ5lsYu0znKVUzVvArzEIt08V1qhtyESbGVd1FGX7UKtiFp5uwKZdM8wIuQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/retry": "0.12.0",
++        "retry": "^0.13.1"
++      },
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/partial-json": {
++      "version": "0.1.7",
++      "resolved": "https://registry.npmjs.org/partial-json/-/partial-json-0.1.7.tgz",
++      "integrity": "sha512-Njv/59hHaokb/hRUjce3Hdv12wd60MtM9Z5Olmn+nehe0QDAsRtRbJPvJ0Z91TusF0SuZRIvnM+S4l6EIP8leA==",
++      "license": "MIT"
++    },
++    "node_modules/protobufjs": {
++      "version": "7.6.6",
++      "resolved": "https://registry.npmjs.org/protobufjs/-/protobufjs-7.6.6.tgz",
++      "integrity": "sha512-dYDWdjSl5RNb7SgPxGQcRU+GtvP7s2fpkrY0r432PcOIaZ0/rBcxEZnQN67iJhFuQiVw754JDoPruPCNdGsbjg==",
++      "hasInstallScript": true,
++      "license": "BSD-3-Clause",
++      "dependencies": {
++        "@protobufjs/aspromise": "^1.1.2",
++        "@protobufjs/base64": "^1.1.2",
++        "@protobufjs/codegen": "^2.0.5",
++        "@protobufjs/eventemitter": "^1.1.1",
++        "@protobufjs/fetch": "^1.1.1",
++        "@protobufjs/float": "^1.0.2",
++        "@protobufjs/path": "^1.1.2",
++        "@protobufjs/pool": "^1.1.0",
++        "@protobufjs/utf8": "^1.1.1",
++        "@types/node": ">=13.7.0",
++        "long": "^5.3.2"
++      },
++      "engines": {
++        "node": ">=12.0.0"
++      }
++    },
++    "node_modules/proxy-agent-negotiate": {
++      "version": "1.1.0",
++      "resolved": "https://registry.npmjs.org/proxy-agent-negotiate/-/proxy-agent-negotiate-1.1.0.tgz",
++      "integrity": "sha512-N8IBcM3UgCVzz2L2Lqv8DVntDnnC8/hiV4nEDUPkqq72TPUgYWjQc+bdZlBPZK9LzPAvOY//gAt0S0DApoOXWQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 20"
++      },
++      "peerDependencies": {
++        "kerberos": "^2.0.0"
++      },
++      "peerDependenciesMeta": {
++        "kerberos": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/retry": {
++      "version": "0.13.1",
++      "resolved": "https://registry.npmjs.org/retry/-/retry-0.13.1.tgz",
++      "integrity": "sha512-XQBQ3I8W1Cge0Seh+6gjj03LbmRFWuoszgK9ooCpwYIrhhoO80pfq4cUkU5DkknwfOfFteRwlZ56PYOGYyFWdg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 4"
++      }
++    },
++    "node_modules/safe-buffer": {
++      "version": "5.2.1",
++      "resolved": "https://registry.npmjs.org/safe-buffer/-/safe-buffer-5.2.1.tgz",
++      "integrity": "sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/feross"
++        },
++        {
++          "type": "patreon",
++          "url": "https://www.patreon.com/feross"
++        },
++        {
++          "type": "consulting",
++          "url": "https://feross.org/support"
++        }
++      ],
++      "license": "MIT"
++    },
++    "node_modules/standardwebhooks": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/standardwebhooks/-/standardwebhooks-1.1.1.tgz",
++      "integrity": "sha512-bCbX9ZEyFkWPsRz7Bl3NuQUJohmwGSev/yhr7vhaGPlc4AfIrspIRa6cPTBuI1ItmrTDJ4d/S2hCsfe4+vQGnQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@stablelib/base64": "^1.0.0",
++        "fast-sha256": "^1.3.0"
++      }
++    },
++    "node_modules/ts-algebra": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/ts-algebra/-/ts-algebra-2.0.0.tgz",
++      "integrity": "sha512-FPAhNPFMrkwz76P7cdjdmiShwMynZYN6SgOujD1urY4oNm80Ou9oMdmbR45LotcKOXoy7wSmHkRFE6Mxbrhefw==",
++      "license": "MIT"
++    },
++    "node_modules/tslib": {
++      "version": "2.8.1",
++      "resolved": "https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz",
++      "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==",
++      "license": "0BSD"
++    },
++    "node_modules/typebox": {
++      "version": "1.3.27",
++      "resolved": "https://registry.npmjs.org/typebox/-/typebox-1.3.27.tgz",
++      "integrity": "sha512-zu+jc1pcy4UiNThxikUr36f0Rybk9PEeCg/NE6adeWr/SKsdNO4EzZHYRDlv2YCVAfj3Odq3dESSo/jNyoBXzA==",
++      "license": "MIT"
++    },
++    "node_modules/typescript": {
++      "version": "5.9.3",
++      "resolved": "https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz",
++      "integrity": "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==",
++      "dev": true,
++      "license": "Apache-2.0",
++      "bin": {
++        "tsc": "bin/tsc",
++        "tsserver": "bin/tsserver"
++      },
++      "engines": {
++        "node": ">=14.17"
++      }
++    },
++    "node_modules/undici-types": {
++      "version": "6.21.0",
++      "resolved": "https://registry.npmjs.org/undici-types/-/undici-types-6.21.0.tgz",
++      "integrity": "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==",
++      "license": "MIT"
++    },
++    "node_modules/web-streams-polyfill": {
++      "version": "3.3.3",
++      "resolved": "https://registry.npmjs.org/web-streams-polyfill/-/web-streams-polyfill-3.3.3.tgz",
++      "integrity": "sha512-d2JWLCivmZYTSIoge9MsgFCZrt571BikcWGYkjC1khllbTeDlGqZ2D8vD8E/lJa8WGWbb7Plm8/XJYV7IJHZZw==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 8"
++      }
++    },
++    "node_modules/ws": {
++      "version": "8.22.0",
++      "resolved": "https://registry.npmjs.org/ws/-/ws-8.22.0.tgz",
++      "integrity": "sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=10.0.0"
++      },
++      "peerDependencies": {
++        "bufferutil": "^4.0.1",
++        "utf-8-validate": ">=5.0.2"
++      },
++      "peerDependenciesMeta": {
++        "bufferutil": {
++          "optional": true
++        },
++        "utf-8-validate": {
++          "optional": true
++        }
++      }
++    }
++  }
++}
+diff --git a/prototype/package.json b/prototype/package.json
+new file mode 100644
+index 0000000..2801690
+--- /dev/null
++++ b/prototype/package.json
+@@ -0,0 +1,24 @@
++{
++  "name": "stoa-poc",
++  "version": "0.1.0",
++  "private": true,
++  "type": "module",
++  "description": "Stoa POC: UX-first shared room on Pi Durable",
++  "scripts": {
++    "build": "tsc",
++    "typecheck": "tsc --noEmit",
++    "start": "node dist/server.js",
++    "smoke": "node scripts/smoke.mjs"
++  },
++  "dependencies": {
++    "@earendil-works/pi-durable": "1.0.0",
++    "@earendil-works/pi-ai": "1.0.0",
++    "@earendil-works/chord": "1.0.0",
++    "ws": "^8.18.0"
++  },
++  "devDependencies": {
++    "typescript": "^5.6.0",
++    "@types/ws": "^8.5.0",
++    "@types/node": "^22.0.0"
++  }
++}
+diff --git a/prototype/public/index.html b/prototype/public/index.html
+new file mode 100644
+index 0000000..a0734ec
+--- /dev/null
++++ b/prototype/public/index.html
+@@ -0,0 +1,385 @@
++<!DOCTYPE html>
++<html lang="en">
++<head>
++<meta charset="UTF-8">
++<meta name="viewport" content="width=device-width, initial-scale=1.0">
++<title>Stoa — POC Room</title>
++<style>
++  :root {
++    --bg: #1a1a2e;
++    --surface: #16213e;
++    --surface2: #0f3460;
++    --text: #e6e6e6;
++    --dim: #8892a4;
++    --accent: #e94560;
++    --accent2: #533483;
++    --green: #00b894;
++    --border: #2a2a4a;
++    --user-bubble: #0f3460;
++    --assistant-bubble: #16213e;
++  }
++  * { box-sizing: border-box; margin: 0; padding: 0; }
++  body {
++    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
++    background: var(--bg);
++    color: var(--text);
++    height: 100vh;
++    display: flex;
++  }
++  /* Left: contribution rail */
++  #rail {
++    width: 260px;
++    background: var(--surface);
++    border-right: 1px solid var(--border);
++    padding: 16px;
++    overflow-y: auto;
++    flex-shrink: 0;
++    display: flex;
++    flex-direction: column;
++  }
++  #rail h3 { font-size: 13px; color: var(--dim); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
++  .contrib-card {
++    background: var(--surface2);
++    border-radius: 8px;
++    padding: 10px 12px;
++    margin-bottom: 8px;
++    font-size: 12px;
++  }
++  .contrib-card .title { font-weight: 600; margin-bottom: 4px; }
++  .contrib-card .meta { color: var(--dim); font-size: 11px; }
++  /* Right: main area */
++  #main {
++    flex: 1;
++    display: flex;
++    flex-direction: column;
++    min-width: 0;
++  }
++  /* Header */
++  #header {
++    padding: 12px 20px;
++    background: var(--surface);
++    border-bottom: 1px solid var(--border);
++    display: flex;
++    align-items: center;
++    justify-content: space-between;
++  }
++  #header h2 { font-size: 16px; }
++  #status {
++    font-size: 12px;
++    padding: 4px 10px;
++    border-radius: 12px;
++  }
++  #status.connected { background: var(--green); color: #000; }
++  #status.disconnected { background: var(--accent); color: #fff; }
++  /* Transcript */
++  #transcript {
++    flex: 1;
++    overflow-y: auto;
++    padding: 20px;
++    display: flex;
++    flex-direction: column;
++    gap: 12px;
++  }
++  .msg {
++    max-width: 80%;
++    padding: 10px 14px;
++    border-radius: 12px;
++    font-size: 14px;
++    line-height: 1.5;
++    white-space: pre-wrap;
++    word-break: break-word;
++  }
++  .msg.user { align-self: flex-end; background: var(--user-bubble); }
++  .msg.assistant { align-self: flex-start; background: var(--assistant-bubble); }
++  .msg.system { align-self: center; background: none; color: var(--dim); font-size: 12px; font-style: italic; }
++  .msg.tool { align-self: center; background: var(--border); font-size: 12px; font-family: monospace; }
++  .msg .sources {
++    margin-top: 6px;
++    display: flex;
++    gap: 4px;
++    flex-wrap: wrap;
++  }
++  .source-chip {
++    font-size: 10px;
++    padding: 2px 8px;
++    border-radius: 10px;
++    background: var(--accent2);
++    color: #fff;
++  }
++  /* Streaming answer */
++  .streaming {
++    align-self: flex-start;
++    background: var(--assistant-bubble);
++    max-width: 80%;
++    padding: 10px 14px;
++    border-radius: 12px;
++    font-size: 14px;
++    line-height: 1.5;
++    white-space: pre-wrap;
++    word-break: break-word;
++    border-left: 3px solid var(--accent);
++    display: none;
++  }
++  .streaming.active { display: block; }
++  /* Tool progress */
++  .tool-progress {
++    align-self: center;
++    background: var(--border);
++    font-size: 12px;
++    font-family: monospace;
++    padding: 8px 12px;
++    border-radius: 8px;
++    max-width: 80%;
++    white-space: pre-wrap;
++    word-break: break-word;
++  }
++  /* Composer */
++  #composer-area {
++    padding: 12px 20px;
++    background: var(--surface);
++    border-top: 1px solid var(--border);
++    display: flex;
++    gap: 8px;
++  }
++  #composer-area input {
++    flex: 1;
++    padding: 10px 14px;
++    border-radius: 8px;
++    border: 1px solid var(--border);
++    background: var(--bg);
++    color: var(--text);
++    font-size: 14px;
++    outline: none;
++  }
++  #composer-area input:focus { border-color: var(--accent); }
++  #composer-area button {
++    padding: 10px 18px;
++    border: none;
++    border-radius: 8px;
++    cursor: pointer;
++    font-size: 14px;
++    font-weight: 600;
++  }
++  #send-btn { background: var(--accent); color: #fff; }
++  #interrupt-btn { background: var(--border); color: var(--text); }
++  #interrupt-btn:disabled { opacity: 0.5; cursor: default; }
++</style>
++</head>
++<body>
++
++<!-- Contribution rail -->
++<aside id="rail">
++  <h3>Contributions</h3>
++  <div id="contrib-list">
++    <div class="contrib-card">
++      <div class="title">Stoa Spec</div>
++      <div class="meta">Anyone · Combinable · No expiry</div>
++    </div>
++    <div class="contrib-card">
++      <div class="title">Pi Durable Docs</div>
++      <div class="meta">Anyone · Quote-only · No expiry</div>
++    </div>
++  </div>
++</aside>
++
++<!-- Main area -->
++<div id="main">
++  <div id="header">
++    <h2>Stoa Room</h2>
++    <span id="status" class="disconnected">disconnected</span>
++  </div>
++  <div id="transcript"></div>
++  <div id="composer-area">
++    <input id="composer" type="text" placeholder="Ask a question..." />
++    <button id="send-btn">Send</button>
++    <button id="interrupt-btn" disabled>⏹ Interrupt</button>
++  </div>
++</div>
++
++<script>
++// ── State ────────────────────────────────────────────────────────────────
++let ws = null;
++let entries = [];
++let liveGeneration = null;
++let liveTools = new Map();
++let sourceRefs = [];
++
++const statusEl = document.getElementById('status');
++const transcriptEl = document.getElementById('transcript');
++const composerEl = document.getElementById('composer');
++const sendBtn = document.getElementById('send-btn');
++const interruptBtn = document.getElementById('interrupt-btn');
++
++function setStatus(s) {
++  statusEl.textContent = s;
++  statusEl.className = s === 'connected' ? 'connected' : 'disconnected';
++}
++
++// ── Rendering ──────────────────────────────────────────────────────────────
++function render() {
++  transcriptEl.innerHTML = '';
++
++  for (const e of entries) {
++    const div = document.createElement('div');
++    div.className = `msg ${e.role}`;
++    div.textContent = e.content || '(empty)';
++    if (e.sources && e.sources.length) {
++      const chips = document.createElement('div');
++      chips.className = 'sources';
++      for (const s of e.sources) {
++        const chip = document.createElement('span');
++        chip.className = 'source-chip';
++        chip.textContent = `↗ ${s}`;
++        chips.appendChild(chip);
++      }
++      div.appendChild(chips);
++    }
++    transcriptEl.appendChild(div);
++  }
++
++  // Streaming answer
++  let streamEl = document.getElementById('streaming-answer');
++  if (!streamEl) {
++    streamEl = document.createElement('div');
++    streamEl.id = 'streaming-answer';
++    streamEl.className = 'streaming';
++    transcriptEl.appendChild(streamEl);
++  }
++  if (liveGeneration && liveGeneration.text) {
++    streamEl.classList.add('active');
++    streamEl.textContent = liveGeneration.text;
++  } else {
++    streamEl.classList.remove('active');
++    streamEl.textContent = '';
++  }
++
++  // Tool progress
++  for (const [id, info] of liveTools) {
++    let toolEl = document.getElementById(`tool-${id}`);
++    if (!toolEl) {
++      toolEl = document.createElement('div');
++      toolEl.id = `tool-${id}`;
++      toolEl.className = 'tool-progress';
++      transcriptEl.appendChild(toolEl);
++    }
++    toolEl.textContent = `${info.name}: ${info.output}`;
++  }
++
++  transcriptEl.scrollTop = transcriptEl.scrollHeight;
++}
++
++// ── WebSocket ──────────────────────────────────────────────────────────────
++function connect() {
++  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
++  const url = `${protocol}//${location.host}/ws`;
++  ws = new WebSocket(url);
++
++  ws.onopen = () => {
++    setStatus('connected');
++    ws.send(JSON.stringify({ t: 'join', room: 'main' }));
++  };
++
++  ws.onmessage = (event) => {
++    const msg = JSON.parse(event.data);
++    switch (msg.t) {
++      case 'view': {
++        const snap = msg.snapshot;
++        entries = (snap.entries || []).map(e => ({
++          ...e,
++          sources: []
++        }));
++        liveGeneration = snap.live?.generation || null;
++        liveTools.clear();
++        if (snap.live?.tools) {
++          for (const t of snap.live.tools) liveTools.set(t.id, t);
++        }
++        render();
++        break;
++      }
++      case 'commit': {
++        if (msg.ops) {
++          for (const op of msg.ops) {
++            if (op.op === 'replace' && op.path === '/entries') {
++              entries = (op.value || []).map(e => ({
++                ...e,
++                sources: []
++              }));
++            }
++          }
++        }
++        render();
++        break;
++      }
++      case 'answer_delta': {
++        if (!liveGeneration) liveGeneration = { text: '' };
++        liveGeneration.text += msg.text;
++        render();
++        break;
++      }
++      case 'tool': {
++        liveTools.set(msg.id, { name: msg.name, output: msg.output });
++        render();
++        break;
++      }
++      case 'sources': {
++        if (msg.refs && msg.refs.length) {
++          for (const ref of msg.refs) {
++            const entry = entries.find(e => e.id === ref.answerEntryId);
++            if (entry) {
++              entry.sources = [...(entry.sources || []), ...ref.contributionIds];
++            }
++          }
++          render();
++        }
++        break;
++      }
++      case 'error': {
++        console.error('Server error:', msg.message);
++        break;
++      }
++    }
++  };
++
++  ws.onclose = () => {
++    setStatus('disconnected');
++    setTimeout(connect, 2000);
++  };
++
++  ws.onerror = () => {
++    ws.close();
++  };
++}
++
++// ── Controls ───────────────────────────────────────────────────────────────
++function submit() {
++  const text = composerEl.value.trim();
++  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
++  ws.send(JSON.stringify({
++    t: 'submit',
++    content: text,
++    requestId: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
++  }));
++  composerEl.value = '';
++}
++
++function interrupt() {
++  if (!ws || ws.readyState !== WebSocket.OPEN) return;
++  ws.send(JSON.stringify({ t: 'interrupt' }));
++}
++
++sendBtn.addEventListener('click', submit);
++composerEl.addEventListener('keydown', (e) => {
++  if (e.key === 'Enter') submit();
++});
++interruptBtn.addEventListener('click', interrupt);
++
++// Enable/disable interrupt based on streaming state
++setInterval(() => {
++  interruptBtn.disabled = !(liveGeneration && liveGeneration.text);
++}, 500);
++
++// ── Init ───────────────────────────────────────────────────────────────────
++connect();
++</script>
++</body>
++</html>
+diff --git a/prototype/scripts/smoke.mjs b/prototype/scripts/smoke.mjs
+new file mode 100644
+index 0000000..071dc9c
+--- /dev/null
++++ b/prototype/scripts/smoke.mjs
+@@ -0,0 +1,203 @@
++#!/usr/bin/env node
++
++/**
++ * Smoke test: boots the Stoa server, connects a WS client, sends join + submit,
++ * and asserts that a view snapshot arrives along with subsequent protocol events.
++ *
++ * Requirements: zero real model key (PROVIDER_KEY unset). Verifies boot,
++ * WS handshake, view snapshot, and protocol event flow. Model answers may be
++ * absent without a key — the smoke must not hang or fail on that.
++ */
++
++import { spawn } from "node:child_process";
++import { WebSocket } from "ws";
++import { setTimeout as sleep } from "node:timers/promises";
++import { randomUUID } from "node:crypto";
++
++const PORT = 19876; // avoid conflicts
++const STORAGE_PATH = `./smoke-${randomUUID()}.sqlite`;
++const SERVER_START_TIMEOUT = 15_000;
++const TEST_TIMEOUT = 20_000;
++
++let serverProcess = null;
++let ws = null;
++let passed = 0;
++let failed = 0;
++const caveats = [];
++
++function check(description, condition) {
++  if (condition) {
++    console.log(`  ✓ ${description}`);
++    passed++;
++  } else {
++    console.log(`  ✗ ${description}`);
++    failed++;
++  }
++}
++
++function caveat(msg) {
++  caveats.push(msg);
++  console.log(`  ⚠ CAVEAT: ${msg}`);
++}
++
++async function main() {
++  console.log("Stoa POC Smoke Test\n");
++
++  // ── 1. Boot server ──────────────────────────────────────────────────────
++  console.log("1. Booting server...");
++
++  serverProcess = spawn("node", ["dist/server.js"], {
++    env: {
++      ...process.env,
++      PORT: String(PORT),
++      STORAGE_PATH,
++      PROVIDER_KEY: "", // explicitly no key
++    },
++    stdio: ["ignore", "pipe", "pipe"],
++  });
++
++  let serverOutput = "";
++  serverProcess.stdout.on("data", (d) => { serverOutput += d.toString(); });
++  serverProcess.stderr.on("data", (d) => { serverOutput += d.toString(); });
++
++  // Wait for server to be ready
++  const startTime = Date.now();
++  let serverReady = false;
++  while (Date.now() - startTime < SERVER_START_TIMEOUT) {
++    if (serverOutput.includes("Stoa POC running")) {
++      serverReady = true;
++      break;
++    }
++    await sleep(200);
++  }
++  check("Server boots and logs ready message", serverReady);
++  if (!serverReady) {
++    console.error("Server output so far:", serverOutput.slice(-500));
++    process.exit(1);
++  }
++  check("Server logs no-model-key warning", serverOutput.includes("No PROVIDER_KEY"));
++
++  // ── 2. Static file serving ──────────────────────────────────────────────
++  console.log("\n2. Static serving...");
++  try {
++    const httpRes = await fetch(`http://localhost:${PORT}/`);
++    const html = await httpRes.text();
++    check("GET / returns 200", httpRes.status === 200);
++    check("Response contains <title>Stoa", html.includes("<title>Stoa"));
++  } catch (e) {
++    check("GET / returns 200", false);
++    console.error("  Error:", e.message);
++  }
++
++  // ── 3. WebSocket handshake ──────────────────────────────────────────────
++  console.log("\n3. WebSocket handshake...");
++  ws = new WebSocket(`ws://localhost:${PORT}/ws`);
++  const wsOpen = await new Promise((resolve) => {
++    const timeout = setTimeout(() => resolve(false), 5000);
++    ws.on("open", () => { clearTimeout(timeout); resolve(true); });
++    ws.on("error", () => { clearTimeout(timeout); resolve(false); });
++  });
++  check("WebSocket connects to /ws", wsOpen);
++  if (!wsOpen) {
++    console.error("  WebSocket failed to connect");
++    serverProcess.kill();
++    process.exit(1);
++  }
++
++  // ── 4. Join → view snapshot ─────────────────────────────────────────────
++  console.log("\n4. Join → view snapshot...");
++
++  const messages = [];
++  ws.on("message", (data) => {
++    try { messages.push(JSON.parse(data.toString())); } catch {}
++  });
++
++  ws.send(JSON.stringify({ t: "join", room: "main" }));
++
++  // Wait for view message
++  let viewMsg = null;
++  const viewStart = Date.now();
++  while (Date.now() - viewStart < 8000) {
++    viewMsg = messages.find((m) => m.t === "view");
++    if (viewMsg) break;
++    await sleep(100);
++  }
++  check("Receives {t:'view'} snapshot after join", !!viewMsg);
++  if (viewMsg) {
++    check("Snapshot has entries array", Array.isArray(viewMsg.snapshot?.entries));
++    check("Snapshot has live field", "live" in (viewMsg.snapshot ?? {}));
++    check("Snapshot has inbox field", "inbox" in (viewMsg.snapshot ?? {}));
++    check("Snapshot has agent field", "agent" in (viewMsg.snapshot ?? {}));
++    check("Snapshot has usage field", "usage" in (viewMsg.snapshot ?? {}));
++  }
++
++  // ── 5. Submit ───────────────────────────────────────────────────────────
++  console.log("\n5. Submit...");
++  const requestId = randomUUID();
++  ws.send(JSON.stringify({
++    t: "submit",
++    content: "Hello Stoa!",
++    requestId,
++  }));
++
++  // Wait a bit for any response events
++  await sleep(2000);
++
++  // Check for commit/delta events
++  const commits = messages.filter((m) => m.t === "commit");
++  const deltas = messages.filter((m) => m.t === "answer_delta");
++  const errors = messages.filter((m) => m.t === "error");
++
++  console.log(`  Received: ${commits.length} commit(s), ${deltas.length} delta(s), ${errors.length} error(s)`);
++
++  check("No protocol errors received", errors.length === 0);
++
++  if (deltas.length === 0 && commits.length === 0) {
++    caveat("No model answers or commits — expected without PROVIDER_KEY; server boots + WS + view snapshot verified OK");
++  } else {
++    check("Received commit or delta events after submit", commits.length > 0 || deltas.length > 0);
++  }
++
++  // ── 6. Ping ─────────────────────────────────────────────────────────────
++  console.log("\n6. Ping...");
++  ws.send(JSON.stringify({ t: "ping" }));
++  await sleep(500);
++  // ping doesn't produce a response; just verify no crash
++  check("Ping does not crash connection", ws.readyState === WebSocket.OPEN);
++
++  // ── 7. Cleanup ───────────────────────────────────────────────────────────
++  console.log("\n7. Cleanup...");
++  ws.close();
++  await sleep(500);
++  serverProcess.kill("SIGTERM");
++  await sleep(1000);
++  check("Server exits cleanly", serverProcess.killed || serverProcess.exitCode !== null);
++
++  // ── Report ───────────────────────────────────────────────────────────────
++  console.log(`\n${"=".repeat(50)}`);
++  console.log(`Results: ${passed} passed, ${failed} failed`);
++  if (caveats.length > 0) {
++    console.log(`\nCaveats:`);
++    for (const c of caveats) console.log(`  - ${c}`);
++  }
++
++  // Clean up temp sqlite
++  try {
++    const fs = await import("node:fs");
++    fs.unlinkSync(STORAGE_PATH);
++    fs.unlinkSync(`${STORAGE_PATH}-wal`);
++    fs.unlinkSync(`${STORAGE_PATH}-shm`);
++  } catch {}
++
++  process.exit(failed > 0 ? 1 : 0);
++}
++
++main().catch((err) => {
++  console.error("Smoke test error:", err);
++  if (serverProcess) serverProcess.kill();
++  try {
++    const fs = require("node:fs");
++    fs.unlinkSync(STORAGE_PATH);
++  } catch {}
++  process.exit(1);
++});
+diff --git a/prototype/src/bridge.ts b/prototype/src/bridge.ts
+new file mode 100644
+index 0000000..5dd4f49
+--- /dev/null
++++ b/prototype/src/bridge.ts
+@@ -0,0 +1,345 @@
++import type { Context } from "@earendil-works/chord";
++import type { Conversation, ConversationView, Harness, EntryRecord } from "@earendil-works/pi-durable";
++import type { WebSocket } from "ws";
++
++// ── Protocol types ─────────────────────────────────────────────────────────
++
++export type ClientMessage =
++  | { t: "join"; room: string }
++  | { t: "submit"; content: string; requestId: string; whenBusy?: "steer" | "followUp" | "reject" }
++  | { t: "steer"; content: string }
++  | { t: "interrupt" }
++  | { t: "fork"; atAnswerId: string; content?: string }
++  | { t: "configure"; tools?: string[] }
++  | { t: "ping" };
++
++export type ServerMessage =
++  | { t: "view"; snapshot: Snapshot }
++  | { t: "commit"; ops: Op[] }
++  | { t: "answer_delta"; text: string }
++  | { t: "tool"; id: string; name: string; output: string }
++  | { t: "sources"; refs: SourceRef[] }
++  | { t: "error"; message: string };
++
++export interface Snapshot {
++  entries: EntrySnapshot[];
++  live: LiveSnapshot | null;
++  inbox: InboxSnapshot[];
++  agent: unknown;
++  usage: unknown;
++}
++
++export interface EntrySnapshot {
++  id: string;
++  kind: string;
++  role: string;
++  content: string;
++}
++
++export interface LiveSnapshot {
++  generation: { text: string } | null;
++  tools: { id: string; name: string; output: string }[];
++}
++
++export interface InboxSnapshot {
++  id: string;
++  content: string;
++  requestId?: string;
++}
++
++export interface Op {
++  op: string;
++  path: string;
++  value?: unknown;
++}
++
++export interface SourceRef {
++  answerEntryId: string;
++  contributionIds: string[];
++}
++
++// ── Helpers ────────────────────────────────────────────────────────────────
++
++function entryToSnapshot(e: EntryRecord): EntrySnapshot {
++  const raw = e as unknown as Record<string, unknown>;
++  const kind = String(raw["kind"] ?? "");
++  return {
++    id: String(raw["id"] ?? ""),
++    kind,
++    role: kindToRole(kind),
++    content: extractEntryContent(raw) ?? "",
++  };
++}
++
++function kindToRole(kind: string): string {
++  if (kind === "pi.user") return "user";
++  if (kind === "pi.assistant") return "assistant";
++  if (kind === "pi.system") return "system";
++  if (kind === "pi.tool-result") return "tool";
++  return kind;
++}
++
++function extractEntryContent(raw: Record<string, unknown>): string | undefined {
++  const content = raw["content"];
++  if (typeof content === "string") return content;
++  if (Array.isArray(content)) {
++    return (content as Array<{ type: string; text?: string }>)
++      .filter((b) => b.type === "text")
++      .map((b) => b.text ?? "")
++      .join("\n");
++  }
++  return undefined;
++}
++
++function buildSnapshot(view: ConversationView): Snapshot {
++  const entries = view.entries.map(entryToSnapshot);
++  const liveDoc = view.docs["pi.live"] as Record<string, unknown> | undefined;
++
++  let live: LiveSnapshot | null = null;
++  if (liveDoc) {
++    const gen = liveDoc["generation"] as Record<string, unknown> | undefined;
++    const tools = (liveDoc["tools"] as Array<Record<string, unknown>> | undefined) ?? [];
++    live = {
++      generation: gen ? { text: String(gen["text"] ?? "") } : null,
++      tools: tools.map((t) => ({
++        id: String(t["id"] ?? ""),
++        name: String(t["name"] ?? ""),
++        output: String(t["output"] ?? ""),
++      })),
++    };
++  }
++
++  const inboxDoc = view.docs["pi.inbox"] as Record<string, unknown> | undefined;
++  const inbox: InboxSnapshot[] = [];
++  if (inboxDoc) {
++    const items = (inboxDoc["items"] as Array<Record<string, unknown>> | undefined) ?? [];
++    for (const item of items) {
++      inbox.push({
++        id: String(item["id"] ?? ""),
++        content: extractEntryContent(item) ?? "",
++        requestId: item["requestId"] ? String(item["requestId"]) : undefined,
++      });
++    }
++  }
++
++  return {
++    entries,
++    live,
++    inbox,
++    agent: view.docs["pi.agent"] ?? {},
++    usage: view.docs["pi.usage"] ?? {},
++  };
++}
++
++function diffView(_prev: ConversationView, next: ConversationView): Op[] {
++  const snapshot = buildSnapshot(next);
++  return [{ op: "replace", path: "/entries", value: snapshot.entries }];
++}
++
++// ── Bridge per-connection ──────────────────────────────────────────────────
++
++export async function handleClient(
++  harness: Harness,
++  ws: WebSocket,
++  _ctx: Context
++): Promise<void> {
++  let conversation: Conversation | null = null;
++  let prevView: ConversationView | null = null;
++  let unsubscribe: (() => void) | null = null;
++
++  const send = (msg: ServerMessage) => {
++    if (ws.readyState === ws.OPEN) {
++      ws.send(JSON.stringify(msg));
++    }
++  };
++
++  const closeView = () => {
++    if (unsubscribe) {
++      unsubscribe();
++      unsubscribe = null;
++    }
++    prevView = null;
++  };
++
++  ws.on("message", async (raw) => {
++    let msg: ClientMessage;
++    try {
++      msg = JSON.parse(raw.toString()) as ClientMessage;
++    } catch {
++      send({ t: "error", message: "Invalid JSON" });
++      return;
++    }
++
++    try {
++      switch (msg.t) {
++        case "join": {
++          closeView();
++          const root = await harness.root(_ctx, {
++            agent: {
++              instructions:
++                "You are a helpful assistant in a shared room. Use list_contributions to see available material. Be concise.",
++            },
++          });
++          conversation = root;
++
++          const view = await root.viewState(_ctx);
++          const current = view.value;
++          if (current) {
++            send({ t: "view", snapshot: buildSnapshot(current) });
++            prevView = current;
++          }
++
++          const sub = view.subscribe((value: ConversationView) => {
++            if (!prevView) {
++              prevView = value;
++              return;
++            }
++
++            const ops = diffView(prevView, value);
++
++            // Check for answer deltas
++            const liveDoc = value.docs["pi.live"] as Record<string, unknown> | undefined;
++            if (liveDoc) {
++              const gen = liveDoc["generation"] as Record<string, unknown> | undefined;
++              if (gen) {
++                const text = String(gen["text"] ?? "");
++                const prevLive = prevView.docs["pi.live"] as Record<string, unknown> | undefined;
++                const prevGen = prevLive?.["generation"] as Record<string, unknown> | undefined;
++                const prevText = prevGen ? String(prevGen["text"] ?? "") : "";
++                if (text.length > prevText.length) {
++                  send({ t: "answer_delta", text: text.slice(prevText.length) });
++                }
++              }
++
++              // Check for tool updates
++              const tools = (liveDoc["tools"] as Array<Record<string, unknown>> | undefined) ?? [];
++              const prevLive2 = prevView.docs["pi.live"] as Record<string, unknown> | undefined;
++              const prevTools =
++                (prevLive2?.["tools"] as Array<Record<string, unknown>> | undefined) ?? [];
++              for (let i = 0; i < tools.length; i++) {
++                const t = tools[i];
++                const pt = prevTools[i];
++                const output = String(t?.["output"] ?? "");
++                const prevOutput = pt ? String(pt["output"] ?? "") : "";
++                if (output !== prevOutput) {
++                  send({
++                    t: "tool",
++                    id: String(t?.["id"] ?? ""),
++                    name: String(t?.["name"] ?? ""),
++                    output,
++                  });
++                }
++              }
++
++              // Source ledger changes
++              const ledger = value.docs["room.source-ledger"] as unknown as
++                | { records: SourceRef[] }
++                | undefined;
++              const prevLedger = prevView.docs["room.source-ledger"] as unknown as
++                | { records: SourceRef[] }
++                | undefined;
++              if (ledger && (!prevLedger || ledger.records.length > prevLedger.records.length)) {
++                const newRecords = prevLedger
++                  ? ledger.records.slice(prevLedger.records.length)
++                  : ledger.records;
++                for (const rec of newRecords) {
++                  send({ t: "sources", refs: [rec] });
++                }
++              }
++            }
++
++            if (ops.length > 0) {
++              send({ t: "commit", ops });
++            }
++            prevView = value;
++          });
++
++          unsubscribe = () => sub();
++          break;
++        }
++
++        case "submit": {
++          if (!conversation) {
++            send({ t: "error", message: "Join a room first" });
++            return;
++          }
++          await conversation.submit(
++            {
++              type: "input",
++              content: msg.content,
++              requestId: msg.requestId,
++              whenBusy: msg.whenBusy ?? "followUp",
++            },
++            _ctx
++          );
++          break;
++        }
++
++        case "steer": {
++          if (!conversation) {
++            send({ t: "error", message: "Join a room first" });
++            return;
++          }
++          await conversation.submit(
++            {
++              type: "input",
++              content: msg.content,
++              whenBusy: "steer",
++            },
++            _ctx
++          );
++          break;
++        }
++
++        case "interrupt": {
++          if (!conversation) {
++            send({ t: "error", message: "Join a room first" });
++            return;
++          }
++          await conversation.abort(_ctx);
++          break;
++        }
++
++        case "fork": {
++          if (!conversation) {
++            send({ t: "error", message: "Join a room first" });
++            return;
++          }
++          send({
++            t: "error",
++            message: "Forking is not yet implemented in the POC (out of scope for milestone 1)",
++          });
++          break;
++        }
++
++        case "configure": {
++          if (!conversation) {
++            send({ t: "error", message: "Join a room first" });
++            return;
++          }
++          if (msg.tools) {
++            send({
++              t: "error",
++              message: "Tool configuration not implemented in POC milestone 1",
++            });
++          }
++          break;
++        }
++
++        case "ping": {
++          break;
++        }
++      }
++    } catch (err) {
++      send({ t: "error", message: String(err) });
++    }
++  });
++
++  ws.on("close", () => {
++    closeView();
++  });
++
++  ws.on("error", () => {
++    closeView();
++  });
++}
+diff --git a/prototype/src/config.ts b/prototype/src/config.ts
+new file mode 100644
+index 0000000..dd5c518
+--- /dev/null
++++ b/prototype/src/config.ts
+@@ -0,0 +1,16 @@
++/** Configuration loaded from environment. */
++export interface Config {
++  port: number;
++  storagePath: string;
++  providerKey: string | undefined;
++  model: string;
++}
++
++export function loadConfig(): Config {
++  return {
++    port: parseInt(process.env["PORT"] ?? "8080", 10),
++    storagePath: process.env["STORAGE_PATH"] ?? "./agent.sqlite",
++    providerKey: process.env["PROVIDER_KEY"] ?? undefined,
++    model: process.env["MODEL"] ?? "gpt-5-mini",
++  };
++}
+diff --git a/prototype/src/room-extension.ts b/prototype/src/room-extension.ts
+new file mode 100644
+index 0000000..bb715aa
+--- /dev/null
++++ b/prototype/src/room-extension.ts
+@@ -0,0 +1,132 @@
++import { defineDoc, defineExtension, defineTool, hook, GenerationTask, ToolTask } from "@earendil-works/pi-durable";
++import type { HookApi } from "@earendil-works/pi-durable";
++import type { Context, JsonValue } from "@earendil-works/chord";
++import { Type } from "@earendil-works/pi-ai";
++
++// ── Document types ─────────────────────────────────────────────────────────
++
++/** One contribution in the room. */
++export interface Contribution {
++  id: string;
++  title: string;
++  content: string;
++  contributor: string;
++  queryableBy: "anyone" | "listed";
++  quoteOnly: boolean;
++  combinable: boolean;
++  expiresAt: string | null;
++  [key: string]: JsonValue;
++}
++
++/** Wrapper for the room's contribution list. */
++export interface ContributionsState {
++  items: Contribution[];
++  [key: string]: JsonValue;
++}
++
++/** Per-answer source ledger entry. */
++export interface SourceRecord {
++  answerEntryId: string;
++  contributionIds: string[];
++  [key: string]: JsonValue;
++}
++
++/** Wrapper for per-answer source records. */
++export interface SourceLedgerState {
++  records: SourceRecord[];
++  [key: string]: JsonValue;
++}
++
++// ── Documents ──────────────────────────────────────────────────────────────
++
++export const ContributionsDoc = defineDoc<ContributionsState>({
++  kind: "room.contributions",
++  version: 1,
++  scope: "conversation",
++  history: "latest",
++  fork: "current",
++  initial: () => ({ items: [] }),
++});
++
++export const SourceLedgerDoc = defineDoc<SourceLedgerState>({
++  kind: "room.source-ledger",
++  version: 1,
++  scope: "conversation",
++  history: "latest",
++  fork: "current",
++  initial: () => ({ records: [] }),
++});
++
++// ── Tool ───────────────────────────────────────────────────────────────────
++
++export const listContributionsTool = defineTool({
++  name: "list_contributions",
++  description: "List all contributions available in this room.",
++  parameters: Type.Object({}),
++  execute: async (_args, api, context) => {
++    const state = await api.snapshot(ContributionsDoc, api.conversationId, context);
++    const now = new Date().toISOString();
++    const contribs = (state?.items ?? []) as unknown as Contribution[];
++    const active = contribs.filter(
++      (c) => !c.expiresAt || c.expiresAt > now
++    );
++    api.output(JSON.stringify(active, null, 2));
++    return {};
++  },
++});
++
++// ── Hooks ──────────────────────────────────────────────────────────────────
++
++const sourceAttributionHook = hook(GenerationTask, {
++  afterResponse: async (message, api: HookApi, context: Context) => {
++    const state = await api.snapshot(ContributionsDoc, api.conversationId, context);
++    const contribs = (state?.items ?? []) as unknown as Contribution[];
++    if (!contribs || contribs.length === 0) return;
++
++    const answerText = extractTextFromMessage(message);
++    if (!answerText) return;
++
++    const matchedIds: string[] = [];
++    for (const c of contribs) {
++      if (
++        answerText.includes(c.title) ||
++        (c.content.length >= 30 && answerText.includes(c.content.slice(0, 30)))
++      ) {
++        matchedIds.push(c.id);
++      }
++    }
++
++    if (matchedIds.length === 0) return;
++
++    // Record pending sources via memo
++    const msgId = (message as unknown as Record<string, unknown>)["id"];
++    await api.memo("pendingSources", {
++      answerEntryId: String(msgId ?? ""),
++      contributionIds: matchedIds,
++    }, context);
++  },
++});
++
++// ── Extension ──────────────────────────────────────────────────────────────
++
++export const RoomExtension = defineExtension({
++  name: "room",
++  tools: [listContributionsTool],
++  hooks: [sourceAttributionHook],
++});
++
++// ── Helpers ────────────────────────────────────────────────────────────────
++
++function extractTextFromMessage(message: unknown): string | undefined {
++  if (message == null) return undefined;
++  const m = message as Record<string, unknown>;
++  const content = m["content"];
++  if (typeof content === "string") return content;
++  if (Array.isArray(content)) {
++    return (content as Array<{ type: string; text?: string }>)
++      .filter((b) => b.type === "text")
++      .map((b) => b.text ?? "")
++      .join("\n");
++  }
++  return undefined;
++}
+diff --git a/prototype/src/server.ts b/prototype/src/server.ts
+new file mode 100644
+index 0000000..7957628
+--- /dev/null
++++ b/prototype/src/server.ts
+@@ -0,0 +1,143 @@
++import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
++import { createModels } from "@earendil-works/pi-ai/models";
++import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
++import { Harness, createRegistry } from "@earendil-works/pi-durable";
++import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
++import { loadConfig } from "./config.js";
++import { RoomExtension } from "./room-extension.js";
++import { handleClient } from "./bridge.js";
++import { createServer, IncomingMessage, ServerResponse } from "node:http";
++import { WebSocketServer, WebSocket } from "ws";
++import { readFileSync, existsSync } from "node:fs";
++import { join, extname } from "node:path";
++import { fileURLToPath } from "node:url";
++
++const MIME_TYPES: Record<string, string> = {
++  ".html": "text/html; charset=utf-8",
++  ".css": "text/css; charset=utf-8",
++  ".js": "application/javascript; charset=utf-8",
++  ".json": "application/json; charset=utf-8",
++  ".png": "image/png",
++  ".svg": "image/svg+xml",
++  ".ico": "image/x-icon",
++};
++
++const __dirname = fileURLToPath(new URL(".", import.meta.url));
++const PUBLIC_DIR = join(__dirname, "..", "public");
++
++function serveStatic(req: IncomingMessage, res: ServerResponse): boolean {
++  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
++  let pathname = url.pathname;
++  if (pathname === "/" || pathname === "") pathname = "/index.html";
++
++  const filePath = join(PUBLIC_DIR, pathname);
++  if (!existsSync(filePath)) return false;
++
++  const ext = extname(filePath).toLowerCase();
++  const mime = MIME_TYPES[ext] ?? "application/octet-stream";
++
++  try {
++    const content = readFileSync(filePath);
++    res.writeHead(200, { "Content-Type": mime });
++    res.end(content);
++    return true;
++  } catch {
++    return false;
++  }
++}
++
++async function main(): Promise<void> {
++  const config = loadConfig();
++  const ctx = BACKGROUND_CONTEXT;
++
++  // ── Storage ────────────────────────────────────────────────────────────
++  console.log(`Opening storage at ${config.storagePath}`);
++  const storage = await openNodeSqliteStorage(config.storagePath);
++
++  // ── Models ─────────────────────────────────────────────────────────────
++  const models = createModels();
++  if (config.providerKey) {
++    process.env["OPENAI_API_KEY"] = config.providerKey;
++  }
++  models.setProvider(openaiProvider());
++
++  // ── Registry + Extension ───────────────────────────────────────────────
++  const registry = createRegistry();
++  registry.install(RoomExtension);
++
++  // ── Harness ────────────────────────────────────────────────────────────
++  console.log("Opening harness...");
++  const harness = await Harness.open(
++    storage,
++    {
++      models,
++      registry,
++      settings: {
++        extensions: [RoomExtension],
++        compaction: {
++          reserveTokens: 16384,
++          backgroundTokens: 0,
++        },
++      },
++    },
++    ctx
++  );
++
++  harness.resume();
++  console.log("Harness ready, resumed pending work.");
++
++  // ── HTTP server ──────────────────────────────────────────────────────────
++  const httpServer = createServer((req, res) => {
++    if (!serveStatic(req, res)) {
++      res.writeHead(404);
++      res.end("Not found");
++    }
++  });
++
++  // ── WebSocket server ────────────────────────────────────────────────────
++  const wss = new WebSocketServer({ noServer: true });
++
++  httpServer.on("upgrade", (request, socket, head) => {
++    const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
++    if (url.pathname === "/ws") {
++      wss.handleUpgrade(request, socket, head, (ws) => {
++        wss.emit("connection", ws, request);
++      });
++    } else {
++      socket.destroy();
++    }
++  });
++
++  wss.on("connection", (ws: WebSocket) => {
++    console.log("WS client connected");
++    handleClient(harness, ws, ctx);
++    ws.on("close", () => console.log("WS client disconnected"));
++  });
++
++  // ── Listen ────���────────────────────────────────────────────────────────
++  httpServer.listen(config.port, () => {
++    console.log(`Stoa POC running on http://localhost:${config.port}`);
++    console.log(`WebSocket at ws://localhost:${config.port}/ws`);
++    if (!config.providerKey) {
++      console.log("⚠ No PROVIDER_KEY set — model answers will not be available.");
++    }
++  });
++
++  // Graceful shutdown
++  const shutdown = async () => {
++    console.log("\nShutting down...");
++    wss.close();
++    httpServer.close();
++    await harness.close(ctx);
++    await storage.close(ctx);
++    process.exit(0);
++  };
++
++  process.on("SIGINT", shutdown);
++  process.on("SIGTERM", shutdown);
++}
++
++main().catch((err) => {
++  console.error("Fatal error:", err);
++  process.exit(1);
++});
+diff --git a/prototype/tsconfig.json b/prototype/tsconfig.json
+new file mode 100644
+index 0000000..131ea74
+--- /dev/null
++++ b/prototype/tsconfig.json
+@@ -0,0 +1,18 @@
++{
++  "compilerOptions": {
++    "target": "ES2022",
++    "module": "Node16",
++    "moduleResolution": "Node16",
++    "outDir": "dist",
++    "rootDir": "src",
++    "strict": true,
++    "esModuleInterop": true,
++    "forceConsistentCasingInFileNames": true,
++    "skipLibCheck": true,
++    "declaration": true,
++    "declarationMap": true,
++    "sourceMap": true
++  },
++  "include": ["src/**/*.ts"],
++  "exclude": ["node_modules", "dist"]
++}

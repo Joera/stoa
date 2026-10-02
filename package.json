@@ -1,0 +1,13 @@
+{
+  "name": "@stoa/monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Stoa — a shared room where several people contribute material and question it together through one shared AI agent",
+  "packageManager": "pnpm@11.16.0",
+  "scripts": {
+    "shared": "pnpm -C shared run build",
+    "build": "pnpm -C shared run build && pnpm -C server run build && pnpm -C web run build",
+    "dev": "pnpm -r --parallel run dev",
+    "test": "pnpm -r test"
+  }
+}

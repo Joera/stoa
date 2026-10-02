@@ -4,15 +4,14 @@
  * Tiny static server for the Stoa Lit SPA.
  *
  * Two-step local flow:
- *   1. npm run build              (esbuild → web/dist/app.js)
- *   2. node scripts/serve.mjs     (start this server)
+ *   1. pnpm -C web run build     (esbuild → web/dist/app.js, @stoa/shared bundled in)
+ *   2. node web/scripts/serve.mjs (start this server)
  *
  * Serves:
  *   web/              (index.html, config.js)
- *   web/dist/         (built Lit bundle)
- *   prototype/shared/ → /shared/  (protocol.js)
+ *   web/dist/         (built Lit bundle — protocol module is bundled, no /shared/ mapping)
  *
- * Usage: node prototype/web/scripts/serve.mjs [port]
+ * Usage: node web/scripts/serve.mjs [port]
  */
 
 import { createServer } from "node:http";
@@ -22,7 +21,6 @@ import { fileURLToPath } from "node:url";
 
 const PORT = parseInt(process.argv[2] ?? "8081", 10);
 const WEB_DIR = fileURLToPath(new URL("..", import.meta.url)); // web/
-const SHARED_DIR = join(WEB_DIR, "..", "shared");               // prototype/shared/
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -59,19 +57,6 @@ const server = createServer((req, res) => {
     return;
   }
 
-  if (pathname.startsWith("/shared/")) {
-    // Map /shared/* → prototype/shared/*
-    const rel = pathname.slice("/shared/".length);
-    const filePath = join(SHARED_DIR, rel);
-    if (existsSync(filePath) && statSync(filePath).isFile()) {
-      serveFile(res, filePath);
-      return;
-    }
-    res.writeHead(404);
-    res.end("Not found");
-    return;
-  }
-
   // Serve from web/ directory (covers /, /config.js, /dist/app.js, sourcemaps, etc.)
   const filePath = join(WEB_DIR, pathname.slice(1));
   if (existsSync(filePath) && statSync(filePath).isFile()) {
@@ -86,6 +71,5 @@ const server = createServer((req, res) => {
 server.listen(PORT, () => {
   console.log(`Stoa web server on http://localhost:${PORT}`);
   console.log(`  Web root:  ${WEB_DIR}`);
-  console.log(`  /shared/ → ${SHARED_DIR}`);
-  console.log(`  (run 'npm run build' first to produce dist/app.js)`);
+  console.log(`  (run 'pnpm -C web run build' first to produce dist/app.js)`);
 });
