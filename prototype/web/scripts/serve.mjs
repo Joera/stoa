@@ -1,8 +1,17 @@
 #!/usr/bin/env node
 
 /**
- * Tiny static server for the web SPA.
- * Serves web/ (index.html, config.js) AND maps /shared/* → ../shared/*.
+ * Tiny static server for the Stoa Lit SPA.
+ *
+ * Two-step local flow:
+ *   1. npm run build              (esbuild → web/dist/app.js)
+ *   2. node scripts/serve.mjs     (start this server)
+ *
+ * Serves:
+ *   web/              (index.html, config.js)
+ *   web/dist/         (built Lit bundle)
+ *   prototype/shared/ → /shared/  (protocol.js)
+ *
  * Usage: node prototype/web/scripts/serve.mjs [port]
  */
 
@@ -22,6 +31,7 @@ const MIME = {
   ".json": "application/json; charset=utf-8",
   ".png": "image/png",
   ".svg": "image/svg+xml",
+  ".map": "application/json; charset=utf-8",
 };
 
 function serveFile(res, filePath) {
@@ -42,7 +52,14 @@ const server = createServer((req, res) => {
   let pathname = url.pathname;
   if (pathname === "/" || pathname === "") pathname = "/index.html";
 
-  if (pathname.startsWith("/shared/") && !pathname.includes("..")) {
+  // Allow dot-segments only when they don't escape web/
+  if (pathname.includes("..")) {
+    res.writeHead(400);
+    res.end("Bad request");
+    return;
+  }
+
+  if (pathname.startsWith("/shared/")) {
     // Map /shared/* → prototype/shared/*
     const rel = pathname.slice("/shared/".length);
     const filePath = join(SHARED_DIR, rel);
@@ -55,7 +72,7 @@ const server = createServer((req, res) => {
     return;
   }
 
-  // Serve from web/ directory
+  // Serve from web/ directory (covers /, /config.js, /dist/app.js, sourcemaps, etc.)
   const filePath = join(WEB_DIR, pathname.slice(1));
   if (existsSync(filePath) && statSync(filePath).isFile()) {
     serveFile(res, filePath);
@@ -70,4 +87,5 @@ server.listen(PORT, () => {
   console.log(`Stoa web server on http://localhost:${PORT}`);
   console.log(`  Web root:  ${WEB_DIR}`);
   console.log(`  /shared/ → ${SHARED_DIR}`);
+  console.log(`  (run 'npm run build' first to produce dist/app.js)`);
 });
