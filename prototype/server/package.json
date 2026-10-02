@@ -1,9 +1,9 @@
 {
-  "name": "stoa-poc",
+  "name": "stoa-server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Stoa POC: UX-first shared room on Pi Durable",
+  "description": "Stoa POC backend — Pi Durable + WS bridge",
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
