@@ -20,6 +20,9 @@ import type {
   SourceRef,
 } from "@stoa/shared";
 
+// Server-side request/response instrumentation (see REPORT.md for the log legend)
+import { log, logErr, nextCorr, lenInfo, msgsBrief, extractStopReason } from "./log.js";
+
 // ── Text extraction helpers ────────────────────────────────────────────────
 
 /**
@@ -78,6 +81,20 @@ function kindToRole(kind: string): string {
   if (kind === "pi.system") return "system";
   if (kind === "pi.tool-result") return "tool";
   return kind;
+}
+
+/**
+ * Reconstruct the messages the harness would serialize into the provider request,
+ * from the stoa-visible conversation entries. This is the coarsest seam we can
+ * log without touching pi-ai internals: role + content length only, never text.
+ */
+function requestContextEntries(view: ConversationView | null): Array<{ role: string; content: string | undefined }> {
+  if (!view) return [];
+  return view.entries.map((e) => {
+    const raw = e as unknown as Record<string, unknown>;
+    const kind = String(raw["kind"] ?? "");
+    return { role: kindToRole(kind), content: extractEntryText(raw) };
+  });
 }
 
 function buildSnapshot(view: ConversationView): Snapshot {
@@ -190,11 +207,12 @@ async function seedContributions(harness: Harness, conversation: Conversation, c
 
 // ── Bridge per-connection ──────────────────────────────────────────────────
 
-export async function handleClient(harness: Harness, ws: WebSocket, _ctx: Context): Promise<void> {
+export async function handleClient(harness: Harness, ws: WebSocket, _ctx: Context, connId: string): Promise<void> {
   let conversation: Conversation | null = null;
   let prevView: ConversationView | null = null;
   let unsubscribe: (() => void) | null = null;
   const sentSourceEntryIds = new Set<string>();
+  let activeCorr: string | null = null;
 
   const send = (msg: ServerMessage) => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
@@ -208,7 +226,20 @@ export async function handleClient(harness: Harness, ws: WebSocket, _ctx: Contex
   ws.on("message", async (raw) => {
     let msg: ClientMessage;
     try { msg = JSON.parse(raw.toString()) as ClientMessage; }
-    catch { send({ t: "error", message: "Invalid JSON" }); return; }
+    catch { logErr("ws-badjson", null, "unparseable message", connId); send({ t: "error", message: "Invalid JSON" }); return; }
+
+    // ── INSTRUMENTATION: log every WS message received (type, room, text length ONLY) ──
+    const loose = msg as unknown as Record<string, unknown>;
+    const textField =
+      typeof loose["content"] === "string" ? (loose["content"] as string)
+      : typeof loose["text"] === "string" ? (loose["text"] as string)
+      : undefined;
+    const room = typeof loose["room"] === "string" ? (loose["room"] as string) : undefined;
+    const { len: textLen } = lenInfo(textField);
+    const parts = [`t=${String(loose["t"] ?? "?")}`, `textLen=${textLen}`];
+    if (room) parts.push(`room=${room}`);
+    if (textField !== undefined) parts.push(`field=${typeof loose["content"] === "string" ? "content" : "text"}`);
+    log("msg", null, parts.join(" "), connId);
 
     try {
       switch (msg.t) {
@@ -229,6 +260,20 @@ export async function handleClient(harness: Harness, ws: WebSocket, _ctx: Contex
           }
           const sub = view.subscribe((value: ConversationView) => {
             if (!prevView) { prevView = value; return; }
+            // ── INSTRUMENTATION: per-turn result — newly persisted entries ──
+            const prevIds = new Set(prevView.entries.map((e) => String(e.id)));
+            for (const e of value.entries) {
+              if (prevIds.has(String(e.id))) continue;
+              const raw = e as unknown as Record<string, unknown>;
+              const kind = String(raw["kind"] ?? "");
+              const content = extractEntryText(raw) ?? "";
+              if (kind === "pi.assistant") {
+                const { empty } = lenInfo(content);
+                log("res", activeCorr, `assistantLen=${content.length} empty=${empty} stopReason=${extractStopReason(raw)}`, connId);
+              } else if (content.trim().length === 0) {
+                log("res", activeCorr, `persistedEmpty kind=${kind} len=${content.length} EMPTY CONTENT DETECTED`, connId);
+              }
+            }
             const ops = diffEntries(prevView, value);
             const liveDoc = value.docs["pi.live"] as Record<string, unknown> | undefined;
             if (liveDoc) {
@@ -261,15 +306,49 @@ export async function handleClient(harness: Harness, ws: WebSocket, _ctx: Contex
           break;
         }
         case "submit": {
-          if (!conversation) { send({ t: "error", message: "Join a room first" }); return; }
-          if (typeof msg.content !== "string" || !msg.content.trim()) { send({ t: "error", message: "content must be a non-empty string" }); return; }
-          await conversation.submit({ type: "input", content: msg.content, requestId: msg.requestId, whenBusy: msg.whenBusy ?? "followUp" }, _ctx);
+          const corr = nextCorr();
+          activeCorr = corr;
+          if (!conversation) { logErr("submit-reject", corr, "no room joined", connId); send({ t: "error", message: "Join a room first" }); return; }
+          if (typeof msg.content !== "string" || !msg.content.trim()) {
+            const why = typeof msg.content !== "string" ? "missing-content-field" : "empty-or-whitespace-content";
+            // The live repro client sends {t:'submit',text:'hello'} — the protocol field is
+            // `content`, so `text` never passes this check. Log which field actually arrived.
+            const sent = textField !== undefined
+              ? `clientSentField=${typeof loose["content"] === "string" ? "content" : "text"} textLen=${textLen}`
+              : "clientSentNoTextField";
+            logErr("submit-reject", corr, `reason=${why} ${sent}`, connId);
+            send({ t: "error", message: "content must be a non-empty string" });
+            return;
+          }
+          // ── INSTRUMENTATION: request context right before the harness runs the turn ──
+          const ctxMsgs = requestContextEntries(prevView);
+          log("req", corr, `submit contentLen=${msg.content.length} msgs=${ctxMsgs.length} ${msgsBrief(ctxMsgs)}`, connId);
+          try {
+            await conversation.submit({ type: "input", content: msg.content, requestId: msg.requestId, whenBusy: msg.whenBusy ?? "followUp" }, _ctx);
+          } catch (err) {
+            // ── INSTRUMENTATION: provider/harness rejection (e.g. the live bug's error) ──
+            logErr("res", corr, `provider/harness error: ${String(err)}`, connId);
+            throw err;
+          }
           break;
         }
         case "steer": {
-          if (!conversation) { send({ t: "error", message: "Join a room first" }); return; }
-          if (typeof msg.content !== "string" || !msg.content.trim()) { send({ t: "error", message: "content must be a non-empty string" }); return; }
-          await conversation.submit({ type: "input", content: msg.content, whenBusy: "steer" }, _ctx);
+          const corr = nextCorr();
+          activeCorr = corr;
+          if (!conversation) { logErr("steer-reject", corr, "no room joined", connId); send({ t: "error", message: "Join a room first" }); return; }
+          if (typeof msg.content !== "string" || !msg.content.trim()) {
+            logErr("steer-reject", corr, `reason=${typeof msg.content !== "string" ? "missing-content-field" : "empty-or-whitespace-content"}`, connId);
+            send({ t: "error", message: "content must be a non-empty string" });
+            return;
+          }
+          const ctxMsgs = requestContextEntries(prevView);
+          log("req", corr, `steer contentLen=${msg.content.length} msgs=${ctxMsgs.length} ${msgsBrief(ctxMsgs)}`, connId);
+          try {
+            await conversation.submit({ type: "input", content: msg.content, whenBusy: "steer" }, _ctx);
+          } catch (err) {
+            logErr("res", corr, `provider/harness error: ${String(err)}`, connId);
+            throw err;
+          }
           break;
         }
         case "interrupt": {
@@ -293,7 +372,10 @@ export async function handleClient(harness: Harness, ws: WebSocket, _ctx: Contex
           break;
         }
       }
-    } catch (err) { send({ t: "error", message: String(err) }); }
+    } catch (err) {
+      logErr("err", activeCorr, `msgType=${(msg as { t?: string }).t} error=${String(err)}`, connId);
+      send({ t: "error", message: String(err) });
+    }
   });
 
   ws.on("close", () => closeView());

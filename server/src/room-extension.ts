@@ -2,6 +2,7 @@ import { defineDoc, defineExtension, defineTool, hook, GenerationTask } from "@e
 import type { HookApi } from "@earendil-works/pi-durable";
 import type { Context, JsonValue } from "@earendil-works/chord";
 import { Type } from "@earendil-works/pi-ai";
+import { log, extractStopReason } from "./log.js";
 
 // ── Document types ─────────────────────────────────────────────────────────
 
@@ -81,11 +82,14 @@ export const listContributionsTool = defineTool({
  */
 const sourceAttributionHook = hook(GenerationTask, {
   afterResponse: async (message, api: HookApi, _context: Context) => {
+    // ── INSTRUMENTATION: provider result as seen at the stoa hook seam ──
+    // (coarsest provider-result seam available without reading pi-ai internals)
+    const answerText = extractTextFromMessage(message) ?? "";
+    log("res-hook", null, `assistantLen=${answerText.length} empty=${answerText.trim().length === 0} stopReason=${extractStopReason(message)}`);
     const state = await api.snapshot(ContributionsDoc, api.conversationId, _context);
     const contribs = (state?.items ?? []) as unknown as Contribution[];
     if (!contribs || contribs.length === 0) return;
 
-    const answerText = extractTextFromMessage(message);
     if (!answerText) return;
 
     const matchedIds: string[] = [];
