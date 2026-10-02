@@ -1,11 +1,10 @@
-import { defineDoc, defineExtension, defineTool, hook, GenerationTask, ToolTask } from "@earendil-works/pi-durable";
+import { defineDoc, defineExtension, defineTool, hook, GenerationTask } from "@earendil-works/pi-durable";
 import type { HookApi } from "@earendil-works/pi-durable";
 import type { Context, JsonValue } from "@earendil-works/chord";
 import { Type } from "@earendil-works/pi-ai";
 
 // ── Document types ─────────────────────────────────────────────────────────
 
-/** One contribution in the room. */
 export interface Contribution {
   id: string;
   title: string;
@@ -18,20 +17,17 @@ export interface Contribution {
   [key: string]: JsonValue;
 }
 
-/** Wrapper for the room's contribution list. */
 export interface ContributionsState {
   items: Contribution[];
   [key: string]: JsonValue;
 }
 
-/** Per-answer source ledger entry. */
 export interface SourceRecord {
   answerEntryId: string;
   contributionIds: string[];
   [key: string]: JsonValue;
 }
 
-/** Wrapper for per-answer source records. */
 export interface SourceLedgerState {
   records: SourceRecord[];
   [key: string]: JsonValue;
@@ -75,11 +71,17 @@ export const listContributionsTool = defineTool({
   },
 });
 
-// ── Hooks ──────────────────────────────────────────────────────────────────
+// ── Hook: source-attribution memo ──────────────────────────────────────────
 
+/**
+ * afterResponse hook: scan the assistant's answer text for contribution content
+ * matches and store them in a task-scoped memo. The bridge picks up the memo
+ * and commits matched sources to the SourceLedgerDoc (since custom conversation
+ * docs are not mounted in ConversationView.docs).
+ */
 const sourceAttributionHook = hook(GenerationTask, {
-  afterResponse: async (message, api: HookApi, context: Context) => {
-    const state = await api.snapshot(ContributionsDoc, api.conversationId, context);
+  afterResponse: async (message, api: HookApi, _context: Context) => {
+    const state = await api.snapshot(ContributionsDoc, api.conversationId, _context);
     const contribs = (state?.items ?? []) as unknown as Contribution[];
     if (!contribs || contribs.length === 0) return;
 
@@ -98,12 +100,13 @@ const sourceAttributionHook = hook(GenerationTask, {
 
     if (matchedIds.length === 0) return;
 
-    // Record pending sources via memo
+    // Store in a durable memo so the bridge can pick it up.
+    // The bridge commits to SourceLedgerDoc separately.
     const msgId = (message as unknown as Record<string, unknown>)["id"];
     await api.memo("pendingSources", {
       answerEntryId: String(msgId ?? ""),
       contributionIds: matchedIds,
-    }, context);
+    }, _context);
   },
 });
 
@@ -119,7 +122,7 @@ export const RoomExtension = defineExtension({
 
 function extractTextFromMessage(message: unknown): string | undefined {
   if (message == null) return undefined;
-  const m = message as Record<string, unknown>;
+  const m = message as unknown as Record<string, unknown>;
   const content = m["content"];
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {

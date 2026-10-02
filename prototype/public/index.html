@@ -373,9 +373,9 @@ composerEl.addEventListener('keydown', (e) => {
 });
 interruptBtn.addEventListener('click', interrupt);
 
-// Enable/disable interrupt based on streaming state
+// Enable interrupt when generation is live (even before text arrives)
 setInterval(() => {
-  interruptBtn.disabled = !(liveGeneration && liveGeneration.text);
+  interruptBtn.disabled = !liveGeneration;
 }, 500);
 
 // ── Init ───────────────────────────────────────────────────────────────────
