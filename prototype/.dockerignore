@@ -1,9 +1,0 @@
-node_modules
-dist
-*.sqlite
-*.sqlite-journal
-*.sqlite-wal
-.git
-.gitignore
-scripts
-REPORT.md
