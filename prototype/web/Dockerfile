@@ -6,6 +6,7 @@ WORKDIR /build
 COPY shared/ /build/shared/
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
+COPY web/tsconfig.json /build/tsconfig.json
 COPY web/src/ /build/src/
 COPY web/scripts/ /build/scripts/
 RUN npm run build
