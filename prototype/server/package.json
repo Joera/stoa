@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/server.js",
+    "start": "node --env-file-if-exists=.env dist/server.js",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {

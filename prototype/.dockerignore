@@ -6,3 +6,7 @@ dist/
 *.sqlite-wal
 *.sqlite-shm
 .git/
+
+# Secrets — never enter the compose build context
+.env
+!.env.example

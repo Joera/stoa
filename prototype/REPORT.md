@@ -96,7 +96,7 @@ changing `shared/protocol.js` and the parallel `shared/protocol.d.ts`.
   ✓ Ping does not crash connection
   ✓ Server exits cleanly after SIGTERM
 
-  Caveats (expected without PROVIDER_KEY):
+  Caveats (expected without VENICE_INFERENCE_KEY):
   - No answer_delta events (streaming wired to generation.message.content)
   - No sources events (pipeline wired: seed → match → commit → emit)
 ```
@@ -111,7 +111,7 @@ cd prototype/web && npx serve . -p 3000          # terminal 2 (or open index.htm
 
 # Docker (one command)
 cd prototype
-PROVIDER_KEY=sk-... docker compose up --build
+VENICE_INFERENCE_KEY=your-key docker compose up --build
 # Server: http://localhost:8080, Web: http://localhost:8081
 ```
 

@@ -4,7 +4,7 @@
  * Smoke test: boots the Stoa server, connects a WS client, sends join + submit,
  * and asserts that a view snapshot arrives along with subsequent protocol events.
  *
- * Requirements: zero real model key (PROVIDER_KEY unset). Verifies boot,
+ * Requirements: zero real model key (VENICE_INFERENCE_KEY unset). Verifies boot,
  * WS handshake, view snapshot, and protocol event flow. Model answers may be
  * absent without a key — the smoke must not hang or fail on that.
  */
@@ -52,7 +52,7 @@ async function main() {
       ...process.env,
       PORT: String(PORT),
       STORAGE_PATH,
-      PROVIDER_KEY: "",
+      VENICE_INFERENCE_KEY: "",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -75,7 +75,7 @@ async function main() {
     console.error("Server output so far:", serverOutput.slice(-500));
     process.exit(1);
   }
-  check("Server logs no-model-key warning", serverOutput.includes("No PROVIDER_KEY"));
+  check("Server logs no-model-key warning", serverOutput.includes("No VENICE_INFERENCE_KEY"));
 
   // ── 2. WebSocket handshake ──────────────────────────────────────────────
   console.log("\n2. WebSocket handshake...");
@@ -150,7 +150,7 @@ async function main() {
       } else {
         caveat(
           `Last entry content="${JSON.stringify(lastEntry?.content)}" kind="${lastEntry?.kind}" — ` +
-          `content may be empty without PROVIDER_KEY (user entry text requires model[0].content)`
+          `content may be empty without VENICE_INFERENCE_KEY (user entry text requires model[0].content)`
         );
       }
     }
@@ -159,7 +159,7 @@ async function main() {
   }
 
   if (deltas.length === 0) {
-    caveat("No answer_delta events — expected without PROVIDER_KEY; streaming verified at boot level");
+    caveat("No answer_delta events — expected without VENICE_INFERENCE_KEY; streaming verified at boot level");
   } else {
     check("Received answer_delta events after submit", deltas.length > 0);
   }
@@ -170,7 +170,7 @@ async function main() {
   // Without a model key, no answer is produced — sources can't fire.
   // But verify the pipeline exists.
   if (sourcesMsgs.length === 0) {
-    caveat("No sources events — expected without PROVIDER_KEY (no answer to attribute)");
+    caveat("No sources events — expected without VENICE_INFERENCE_KEY (no answer to attribute)");
   } else {
     check("Sources events received", sourcesMsgs.length > 0);
   }
