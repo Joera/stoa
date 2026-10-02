@@ -119,8 +119,13 @@ export class StoaApp extends LitElement {
         }
         this.requestUpdate();
       } else if (isAnswerDelta(msg)) {
-        if (!this._liveGeneration) this._liveGeneration = { text: "" };
-        this._liveGeneration.text += msg.text;
+        // B1 fix: reassign a FRESH object per delta so the property reference
+        // changes and <stoa-transcript> re-renders (Lit's default hasChanged is
+        // Object.is, so mutating .text in place on the same object never triggers
+        // the child). Keep the same { text: string } shape the component expects.
+        this._liveGeneration = {
+          text: (this._liveGeneration?.text ?? "") + msg.text,
+        };
         this.requestUpdate();
       } else if (isTool(msg)) {
         this._liveTools.set(msg.id, { name: msg.name, output: msg.output });
@@ -128,10 +133,14 @@ export class StoaApp extends LitElement {
         this.requestUpdate();
       } else if (isSources(msg)) {
         if (msg.refs && msg.refs.length) {
+          // B2 fix: reassign _entries to a fresh array with fresh element
+          // references so the `entries` property reference changes and the child
+          // re-renders (mutating entry.sources in place on the same array/element
+          // never triggers the child). The repeat() keyed by id then re-renders
+          // the touched messages and their source chips.
+          const updated = this._entries.map((e) => ({ ...e }));
           for (const ref of msg.refs as any[]) {
-            const entry = this._entries.find(
-              (e) => e.id === ref.answerEntryId
-            );
+            const entry = updated.find((e) => e.id === ref.answerEntryId);
             if (entry) {
               entry.sources = [
                 ...(entry.sources || []),
@@ -139,6 +148,7 @@ export class StoaApp extends LitElement {
               ];
             }
           }
+          this._entries = updated;
         }
         this.requestUpdate();
       } else if (isError(msg)) {
