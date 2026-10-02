@@ -1,6 +1,8 @@
 services:
-  stoa:
-    build: .
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
     ports:
       - "8080:8080"
     environment:
@@ -8,6 +10,16 @@ services:
       - MODEL=${MODEL:-gpt-5-mini}
     volumes:
       - stoa-data:/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    ports:
+      - "8081:80"
+    depends_on:
+      - server
     restart: unless-stopped
 
 volumes:

@@ -64,7 +64,7 @@ async function main() {
   const startTime = Date.now();
   let serverReady = false;
   while (Date.now() - startTime < SERVER_START_TIMEOUT) {
-    if (serverOutput.includes("Stoa POC running")) {
+    if (serverOutput.includes("Stoa server listening")) {
       serverReady = true;
       break;
     }
@@ -77,20 +77,8 @@ async function main() {
   }
   check("Server logs no-model-key warning", serverOutput.includes("No PROVIDER_KEY"));
 
-  // ── 2. Static file serving ──────────────────────────────────────────────
-  console.log("\n2. Static serving...");
-  try {
-    const httpRes = await fetch(`http://localhost:${PORT}/`);
-    const html = await httpRes.text();
-    check("GET / returns 200", httpRes.status === 200);
-    check("Response contains <title>Stoa", html.includes("<title>Stoa"));
-  } catch (e) {
-    check("GET / returns 200", false);
-    console.error("  Error:", e.message);
-  }
-
-  // ── 3. WebSocket handshake ──────────────────────────────────────────────
-  console.log("\n3. WebSocket handshake...");
+  // ── 2. WebSocket handshake ──────────────────────────────────────────────
+  console.log("\n2. WebSocket handshake...");
   ws = new WebSocket(`ws://localhost:${PORT}/ws`);
   const wsOpen = await new Promise((resolve) => {
     const timeout = setTimeout(() => resolve(false), 5000);
@@ -104,8 +92,8 @@ async function main() {
     process.exit(1);
   }
 
-  // ── 4. Join → view snapshot ─────────────────────────────────────────────
-  console.log("\n4. Join → view snapshot...");
+  // ── 3. Join → view snapshot ─────────────────────────────────────────────
+  console.log("\n3. Join → view snapshot...");
 
   const messages = [];
   ws.on("message", (data) => {
@@ -130,8 +118,8 @@ async function main() {
     check("Snapshot has usage field", "usage" in (viewMsg.snapshot ?? {}));
   }
 
-  // ── 5. Submit + verify transcript content ───────────────────────────────
-  console.log("\n5. Submit + transcript...");
+  // ── 4. Submit + verify transcript content ───────────────────────────────
+  console.log("\n4. Submit + transcript...");
   const requestId = randomUUID();
   ws.send(JSON.stringify({
     t: "submit",
@@ -176,8 +164,8 @@ async function main() {
     check("Received answer_delta events after submit", deltas.length > 0);
   }
 
-  // ── 6. Sources check ─────────────────────────────────────────────────────
-  console.log("\n6. Sources...");
+  // ── 5. Sources check ─────────────────────────────────────────────────────
+  console.log("\n5. Sources...");
   const sourcesMsgs = messages.filter((m) => m.t === "sources");
   // Without a model key, no answer is produced — sources can't fire.
   // But verify the pipeline exists.
@@ -187,14 +175,14 @@ async function main() {
     check("Sources events received", sourcesMsgs.length > 0);
   }
 
-  // ── 7. Ping ─────────────────────────────────────────────────────────────
-  console.log("\n7. Ping...");
+  // ── 6. Ping ─────────────────────────────────────────────────────────────
+  console.log("\n6. Ping...");
   ws.send(JSON.stringify({ t: "ping" }));
   await sleep(500);
   check("Ping does not crash connection", ws.readyState === WebSocket.OPEN);
 
-  // ── 8. Cleanup ───────────────────────────────────────────────────────────
-  console.log("\n8. Cleanup...");
+  // ── 7. Cleanup ───────────────────────────────────────────────────────────
+  console.log("\n7. Cleanup...");
   ws.close();
   await sleep(500);
 

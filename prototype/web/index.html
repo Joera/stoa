@@ -26,7 +26,6 @@
     height: 100vh;
     display: flex;
   }
-  /* Left: contribution rail */
   #rail {
     width: 260px;
     background: var(--surface);
@@ -47,14 +46,12 @@
   }
   .contrib-card .title { font-weight: 600; margin-bottom: 4px; }
   .contrib-card .meta { color: var(--dim); font-size: 11px; }
-  /* Right: main area */
   #main {
     flex: 1;
     display: flex;
     flex-direction: column;
     min-width: 0;
   }
-  /* Header */
   #header {
     padding: 12px 20px;
     background: var(--surface);
@@ -71,7 +68,6 @@
   }
   #status.connected { background: var(--green); color: #000; }
   #status.disconnected { background: var(--accent); color: #fff; }
-  /* Transcript */
   #transcript {
     flex: 1;
     overflow-y: auto;
@@ -106,7 +102,6 @@
     background: var(--accent2);
     color: #fff;
   }
-  /* Streaming answer */
   .streaming {
     align-self: flex-start;
     background: var(--assistant-bubble);
@@ -121,7 +116,6 @@
     display: none;
   }
   .streaming.active { display: block; }
-  /* Tool progress */
   .tool-progress {
     align-self: center;
     background: var(--border);
@@ -133,7 +127,6 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
-  /* Composer */
   #composer-area {
     padding: 12px 20px;
     background: var(--surface);
@@ -167,7 +160,6 @@
 </head>
 <body>
 
-<!-- Contribution rail -->
 <aside id="rail">
   <h3>Contributions</h3>
   <div id="contrib-list">
@@ -182,7 +174,6 @@
   </div>
 </aside>
 
-<!-- Main area -->
 <div id="main">
   <div id="header">
     <h2>Stoa Room</h2>
@@ -196,132 +187,120 @@
   </div>
 </div>
 
-<script>
-// ── State ────────────────────────────────────────────────────────────────
-let ws = null;
-let entries = [];
-let liveGeneration = null;
-let liveTools = new Map();
-let sourceRefs = [];
+<script src="/config.js"></script>
+<script type="module">
+  // Consume the shared protocol module for message construction and recognition
+  import {
+    DEFAULT_WS_URL,
+    makeJoin, makeSubmit, makeInterrupt, makePing,
+    isView, isCommit, isAnswerDelta, isTool, isSources, isError,
+  } from "/shared/protocol.js";
 
-const statusEl = document.getElementById('status');
-const transcriptEl = document.getElementById('transcript');
-const composerEl = document.getElementById('composer');
-const sendBtn = document.getElementById('send-btn');
-const interruptBtn = document.getElementById('interrupt-btn');
+  // ── WS URL: config.js default, overridden by ?ws= query param
+  const params = new URLSearchParams(location.search);
+  const WS_URL = params.get("ws") || window.STOA_WS_URL || DEFAULT_WS_URL;
 
-function setStatus(s) {
-  statusEl.textContent = s;
-  statusEl.className = s === 'connected' ? 'connected' : 'disconnected';
-}
+  // ── State
+  let ws = null;
+  let entries = [];
+  let liveGeneration = null;
+  let liveTools = new Map();
 
-// ── Rendering ──────────────────────────────────────────────────────────────
-function render() {
-  transcriptEl.innerHTML = '';
+  const statusEl = document.getElementById('status');
+  const transcriptEl = document.getElementById('transcript');
+  const composerEl = document.getElementById('composer');
+  const sendBtn = document.getElementById('send-btn');
+  const interruptBtn = document.getElementById('interrupt-btn');
 
-  for (const e of entries) {
-    const div = document.createElement('div');
-    div.className = `msg ${e.role}`;
-    div.textContent = e.content || '(empty)';
-    if (e.sources && e.sources.length) {
-      const chips = document.createElement('div');
-      chips.className = 'sources';
-      for (const s of e.sources) {
-        const chip = document.createElement('span');
-        chip.className = 'source-chip';
-        chip.textContent = `↗ ${s}`;
-        chips.appendChild(chip);
+  function setStatus(s) {
+    statusEl.textContent = s;
+    statusEl.className = s === 'connected' ? 'connected' : 'disconnected';
+  }
+
+  // ── Rendering
+  function render() {
+    transcriptEl.innerHTML = '';
+    for (const e of entries) {
+      const div = document.createElement('div');
+      div.className = `msg ${e.role}`;
+      div.textContent = e.content || '(empty)';
+      if (e.sources && e.sources.length) {
+        const chips = document.createElement('div');
+        chips.className = 'sources';
+        for (const s of e.sources) {
+          const chip = document.createElement('span');
+          chip.className = 'source-chip';
+          chip.textContent = `↗ ${s}`;
+          chips.appendChild(chip);
+        }
+        div.appendChild(chips);
       }
-      div.appendChild(chips);
+      transcriptEl.appendChild(div);
     }
-    transcriptEl.appendChild(div);
-  }
 
-  // Streaming answer
-  let streamEl = document.getElementById('streaming-answer');
-  if (!streamEl) {
-    streamEl = document.createElement('div');
-    streamEl.id = 'streaming-answer';
-    streamEl.className = 'streaming';
-    transcriptEl.appendChild(streamEl);
-  }
-  if (liveGeneration && liveGeneration.text) {
-    streamEl.classList.add('active');
-    streamEl.textContent = liveGeneration.text;
-  } else {
-    streamEl.classList.remove('active');
-    streamEl.textContent = '';
-  }
-
-  // Tool progress
-  for (const [id, info] of liveTools) {
-    let toolEl = document.getElementById(`tool-${id}`);
-    if (!toolEl) {
-      toolEl = document.createElement('div');
-      toolEl.id = `tool-${id}`;
-      toolEl.className = 'tool-progress';
-      transcriptEl.appendChild(toolEl);
+    let streamEl = document.getElementById('streaming-answer');
+    if (!streamEl) {
+      streamEl = document.createElement('div');
+      streamEl.id = 'streaming-answer';
+      streamEl.className = 'streaming';
+      transcriptEl.appendChild(streamEl);
     }
-    toolEl.textContent = `${info.name}: ${info.output}`;
+    if (liveGeneration && liveGeneration.text) {
+      streamEl.classList.add('active');
+      streamEl.textContent = liveGeneration.text;
+    } else {
+      streamEl.classList.remove('active');
+      streamEl.textContent = '';
+    }
+
+    for (const [id, info] of liveTools) {
+      let toolEl = document.getElementById(`tool-${id}`);
+      if (!toolEl) {
+        toolEl = document.createElement('div');
+        toolEl.id = `tool-${id}`;
+        toolEl.className = 'tool-progress';
+        transcriptEl.appendChild(toolEl);
+      }
+      toolEl.textContent = `${info.name}: ${info.output}`;
+    }
+    transcriptEl.scrollTop = transcriptEl.scrollHeight;
   }
 
-  transcriptEl.scrollTop = transcriptEl.scrollHeight;
-}
-
-// ── WebSocket ──────────────────────────────────────────────────────────────
-function connect() {
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${protocol}//${location.host}/ws`;
-  ws = new WebSocket(url);
-
-  ws.onopen = () => {
-    setStatus('connected');
-    ws.send(JSON.stringify({ t: 'join', room: 'main' }));
-  };
-
-  ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-    switch (msg.t) {
-      case 'view': {
+  // ── WebSocket
+  function connect() {
+    ws = new WebSocket(WS_URL);
+    ws.onopen = () => {
+      setStatus('connected');
+      ws.send(JSON.stringify(makeJoin('main')));
+    };
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (isView(msg)) {
         const snap = msg.snapshot;
-        entries = (snap.entries || []).map(e => ({
-          ...e,
-          sources: []
-        }));
+        entries = (snap.entries || []).map(e => ({ ...e, sources: [] }));
         liveGeneration = snap.live?.generation || null;
         liveTools.clear();
         if (snap.live?.tools) {
           for (const t of snap.live.tools) liveTools.set(t.id, t);
         }
         render();
-        break;
-      }
-      case 'commit': {
+      } else if (isCommit(msg)) {
         if (msg.ops) {
           for (const op of msg.ops) {
             if (op.op === 'replace' && op.path === '/entries') {
-              entries = (op.value || []).map(e => ({
-                ...e,
-                sources: []
-              }));
+              entries = (op.value || []).map(e => ({ ...e, sources: [] }));
             }
           }
         }
         render();
-        break;
-      }
-      case 'answer_delta': {
+      } else if (isAnswerDelta(msg)) {
         if (!liveGeneration) liveGeneration = { text: '' };
         liveGeneration.text += msg.text;
         render();
-        break;
-      }
-      case 'tool': {
+      } else if (isTool(msg)) {
         liveTools.set(msg.id, { name: msg.name, output: msg.output });
         render();
-        break;
-      }
-      case 'sources': {
+      } else if (isSources(msg)) {
         if (msg.refs && msg.refs.length) {
           for (const ref of msg.refs) {
             const entry = entries.find(e => e.id === ref.answerEntryId);
@@ -331,55 +310,31 @@ function connect() {
           }
           render();
         }
-        break;
-      }
-      case 'error': {
+      } else if (isError(msg)) {
         console.error('Server error:', msg.message);
-        break;
       }
-    }
-  };
+    };
+    ws.onclose = () => { setStatus('disconnected'); setTimeout(connect, 2000); };
+    ws.onerror = () => { ws.close(); };
+  }
 
-  ws.onclose = () => {
-    setStatus('disconnected');
-    setTimeout(connect, 2000);
-  };
+  // ── Controls
+  function submit() {
+    const text = composerEl.value.trim();
+    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify(makeSubmit(text, crypto.randomUUID?.() ?? Date.now().toString())));
+    composerEl.value = '';
+  }
+  function interrupt() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify(makeInterrupt()));
+  }
+  sendBtn.addEventListener('click', submit);
+  composerEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  interruptBtn.addEventListener('click', interrupt);
+  setInterval(() => { interruptBtn.disabled = !liveGeneration; }, 500);
 
-  ws.onerror = () => {
-    ws.close();
-  };
-}
-
-// ── Controls ───────────────────────────────────────────────────────────────
-function submit() {
-  const text = composerEl.value.trim();
-  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({
-    t: 'submit',
-    content: text,
-    requestId: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
-  }));
-  composerEl.value = '';
-}
-
-function interrupt() {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ t: 'interrupt' }));
-}
-
-sendBtn.addEventListener('click', submit);
-composerEl.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') submit();
-});
-interruptBtn.addEventListener('click', interrupt);
-
-// Enable interrupt when generation is live (even before text arrives)
-setInterval(() => {
-  interruptBtn.disabled = !liveGeneration;
-}, 500);
-
-// ── Init ───────────────────────────────────────────────────────────────────
-connect();
+  connect();
 </script>
 </body>
 </html>
