@@ -1,0 +1,14 @@
+services:
+  stoa:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - PROVIDER_KEY=${PROVIDER_KEY:-}
+      - MODEL=${MODEL:-gpt-5-mini}
+    volumes:
+      - stoa-data:/data
+    restart: unless-stopped
+
+volumes:
+  stoa-data:

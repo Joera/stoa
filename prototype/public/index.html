@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stoa — POC Room</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --text: #e6e6e6;
+    --dim: #8892a4;
+    --accent: #e94560;
+    --accent2: #533483;
+    --green: #00b894;
+    --border: #2a2a4a;
+    --user-bubble: #0f3460;
+    --assistant-bubble: #16213e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+  }
+  /* Left: contribution rail */
+  #rail {
+    width: 260px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  #rail h3 { font-size: 13px; color: var(--dim); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .contrib-card {
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+  .contrib-card .title { font-weight: 600; margin-bottom: 4px; }
+  .contrib-card .meta { color: var(--dim); font-size: 11px; }
+  /* Right: main area */
+  #main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  /* Header */
+  #header {
+    padding: 12px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  #header h2 { font-size: 16px; }
+  #status {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 12px;
+  }
+  #status.connected { background: var(--green); color: #000; }
+  #status.disconnected { background: var(--accent); color: #fff; }
+  /* Transcript */
+  #transcript {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .msg {
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.user { align-self: flex-end; background: var(--user-bubble); }
+  .msg.assistant { align-self: flex-start; background: var(--assistant-bubble); }
+  .msg.system { align-self: center; background: none; color: var(--dim); font-size: 12px; font-style: italic; }
+  .msg.tool { align-self: center; background: var(--border); font-size: 12px; font-family: monospace; }
+  .msg .sources {
+    margin-top: 6px;
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .source-chip {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--accent2);
+    color: #fff;
+  }
+  /* Streaming answer */
+  .streaming {
+    align-self: flex-start;
+    background: var(--assistant-bubble);
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border-left: 3px solid var(--accent);
+    display: none;
+  }
+  .streaming.active { display: block; }
+  /* Tool progress */
+  .tool-progress {
+    align-self: center;
+    background: var(--border);
+    font-size: 12px;
+    font-family: monospace;
+    padding: 8px 12px;
+    border-radius: 8px;
+    max-width: 80%;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  /* Composer */
+  #composer-area {
+    padding: 12px 20px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+  }
+  #composer-area input {
+    flex: 1;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+  }
+  #composer-area input:focus { border-color: var(--accent); }
+  #composer-area button {
+    padding: 10px 18px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  #send-btn { background: var(--accent); color: #fff; }
+  #interrupt-btn { background: var(--border); color: var(--text); }
+  #interrupt-btn:disabled { opacity: 0.5; cursor: default; }
+</style>
+</head>
+<body>
+
+<!-- Contribution rail -->
+<aside id="rail">
+  <h3>Contributions</h3>
+  <div id="contrib-list">
+    <div class="contrib-card">
+      <div class="title">Stoa Spec</div>
+      <div class="meta">Anyone · Combinable · No expiry</div>
+    </div>
+    <div class="contrib-card">
+      <div class="title">Pi Durable Docs</div>
+      <div class="meta">Anyone · Quote-only · No expiry</div>
+    </div>
+  </div>
+</aside>
+
+<!-- Main area -->
+<div id="main">
+  <div id="header">
+    <h2>Stoa Room</h2>
+    <span id="status" class="disconnected">disconnected</span>
+  </div>
+  <div id="transcript"></div>
+  <div id="composer-area">
+    <input id="composer" type="text" placeholder="Ask a question..." />
+    <button id="send-btn">Send</button>
+    <button id="interrupt-btn" disabled>⏹ Interrupt</button>
+  </div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────
+let ws = null;
+let entries = [];
+let liveGeneration = null;
+let liveTools = new Map();
+let sourceRefs = [];
+
+const statusEl = document.getElementById('status');
+const transcriptEl = document.getElementById('transcript');
+const composerEl = document.getElementById('composer');
+const sendBtn = document.getElementById('send-btn');
+const interruptBtn = document.getElementById('interrupt-btn');
+
+function setStatus(s) {
+  statusEl.textContent = s;
+  statusEl.className = s === 'connected' ? 'connected' : 'disconnected';
+}
+
+// ── Rendering ──────────────────────────────────────────────────────────────
+function render() {
+  transcriptEl.innerHTML = '';
+
+  for (const e of entries) {
+    const div = document.createElement('div');
+    div.className = `msg ${e.role}`;
+    div.textContent = e.content || '(empty)';
+    if (e.sources && e.sources.length) {
+      const chips = document.createElement('div');
+      chips.className = 'sources';
+      for (const s of e.sources) {
+        const chip = document.createElement('span');
+        chip.className = 'source-chip';
+        chip.textContent = `↗ ${s}`;
+        chips.appendChild(chip);
+      }
+      div.appendChild(chips);
+    }
+    transcriptEl.appendChild(div);
+  }
+
+  // Streaming answer
+  let streamEl = document.getElementById('streaming-answer');
+  if (!streamEl) {
+    streamEl = document.createElement('div');
+    streamEl.id = 'streaming-answer';
+    streamEl.className = 'streaming';
+    transcriptEl.appendChild(streamEl);
+  }
+  if (liveGeneration && liveGeneration.text) {
+    streamEl.classList.add('active');
+    streamEl.textContent = liveGeneration.text;
+  } else {
+    streamEl.classList.remove('active');
+    streamEl.textContent = '';
+  }
+
+  // Tool progress
+  for (const [id, info] of liveTools) {
+    let toolEl = document.getElementById(`tool-${id}`);
+    if (!toolEl) {
+      toolEl = document.createElement('div');
+      toolEl.id = `tool-${id}`;
+      toolEl.className = 'tool-progress';
+      transcriptEl.appendChild(toolEl);
+    }
+    toolEl.textContent = `${info.name}: ${info.output}`;
+  }
+
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+
+// ── WebSocket ──────────────────────────────────────────────────────────────
+function connect() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${protocol}//${location.host}/ws`;
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    setStatus('connected');
+    ws.send(JSON.stringify({ t: 'join', room: 'main' }));
+  };
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    switch (msg.t) {
+      case 'view': {
+        const snap = msg.snapshot;
+        entries = (snap.entries || []).map(e => ({
+          ...e,
+          sources: []
+        }));
+        liveGeneration = snap.live?.generation || null;
+        liveTools.clear();
+        if (snap.live?.tools) {
+          for (const t of snap.live.tools) liveTools.set(t.id, t);
+        }
+        render();
+        break;
+      }
+      case 'commit': {
+        if (msg.ops) {
+          for (const op of msg.ops) {
+            if (op.op === 'replace' && op.path === '/entries') {
+              entries = (op.value || []).map(e => ({
+                ...e,
+                sources: []
+              }));
+            }
+          }
+        }
+        render();
+        break;
+      }
+      case 'answer_delta': {
+        if (!liveGeneration) liveGeneration = { text: '' };
+        liveGeneration.text += msg.text;
+        render();
+        break;
+      }
+      case 'tool': {
+        liveTools.set(msg.id, { name: msg.name, output: msg.output });
+        render();
+        break;
+      }
+      case 'sources': {
+        if (msg.refs && msg.refs.length) {
+          for (const ref of msg.refs) {
+            const entry = entries.find(e => e.id === ref.answerEntryId);
+            if (entry) {
+              entry.sources = [...(entry.sources || []), ...ref.contributionIds];
+            }
+          }
+          render();
+        }
+        break;
+      }
+      case 'error': {
+        console.error('Server error:', msg.message);
+        break;
+      }
+    }
+  };
+
+  ws.onclose = () => {
+    setStatus('disconnected');
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => {
+    ws.close();
+  };
+}
+
+// ── Controls ───────────────────────────────────────────────────────────────
+function submit() {
+  const text = composerEl.value.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({
+    t: 'submit',
+    content: text,
+    requestId: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+  }));
+  composerEl.value = '';
+}
+
+function interrupt() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ t: 'interrupt' }));
+}
+
+sendBtn.addEventListener('click', submit);
+composerEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') submit();
+});
+interruptBtn.addEventListener('click', interrupt);
+
+// Enable/disable interrupt based on streaming state
+setInterval(() => {
+  interruptBtn.disabled = !(liveGeneration && liveGeneration.text);
+}, 500);
+
+// ── Init ───────────────────────────────────────────────────────────────────
+connect();
+</script>
+</body>
+</html>
