@@ -243,14 +243,43 @@ docker run -p 8080:8080 -v stoa-data:/data -e PROVIDER_KEY=... stoa-poc
 
 ## Implementation status (2026-10-02)
 
-**Built.** PR #1 (`poc-scaffold`, branch in `worktrees/stoa-poc-scaffold`)
-implements the scaffold exactly per this spec's architecture and WS protocol
-under `prototype/`. Review cycle: independent review -> **BLOCKING** (four bugs
-at the Pi Durable 1.0.0 API boundary) -> fix commit -> re-review
-**APPROVE-WITH-NITS**. PR is open and mergeable; the human merges.
+**Built and merged in two stages (2026-10-02).**
+
+**Stage 1 — scaffold: PR #1 (MERGED).** `poc-scaffold` implemented the scaffold
+exactly per this spec's architecture and WS protocol under `prototype/`.
+Review cycle: independent review -> **BLOCKING** (four bugs at the Pi Durable
+1.0.0 API boundary) -> fix commit `ed3bd0d` -> re-review **APPROVE-WITH-NITS**.
+The human merged PR #1 at `ed3bd0d` (merge `5a4bfda`); `main` now carries the
+scaffold + B1–B4 fixes.
+
+**Stage 2 — split: PR #2 (OPEN, `poc-split`).** User-requested split of backend
+and frontend plus a shared protocol module to prevent drift:
+
+- `prototype/server/` — backend package only (Pi Durable harness over SQLite,
+  room extension, WS bridge on :8080, **no static serving**), own Dockerfile.
+- `prototype/web/` — SPA served by its own **nginx container** (port 80 →
+  published 8081), configurable WS URL (`web/config.js` → `window.STOA_WS_URL`,
+  default `ws://localhost:8080`, `?ws=` override) — no same-origin assumption.
+- `prototype/shared/` — **single source of truth** for the WS protocol:
+  `protocol.js` (ESM factories + type guards) consumed by web at runtime,
+  `protocol.d.ts` consumed by server at compile time. Zero duplicated
+  definitions; message shapes unchanged from PR #1.
+- `docker-compose.yml` — two services (`server` :8080, `web` :8081) + shared
+  `stoa-data` volume.
+
+Split review: **APPROVE-WITH-NITS**, all 7 contract items empirically
+confirmed by the reviewer against a scratch build (gates 13/13; compose
+build/up; curl of web `/`, `/shared/protocol.js`, `/config.js`; server health
+NOT SPA; WS join→view + submit round-trip through published ports; protocol
+shape extracted programmatically and unchanged; single-source grep clean). Nit
+fixes landed in `915262f` (local quick-start `node prototype/web/scripts/serve.mjs`
+verified 200 for all three paths, root `.dockerignore`, `configure` pre-join
+guard restored). PR #1 was merged at the pre-split state, so the split commits
+were rebased onto merged `main` as `poc-split` (cherry-pick clean; PR #2 diff
+is byte-identical to the reviewed delta; gates re-verified at `a5db7e5`).
 
 Where the built protocol differs from this spec (documented honestly in the
-PR's REPORT.md):
+PRs' REPORT.md):
 
 - `fork` and `configure` return explicit "not yet implemented" errors (M1
   scope).
@@ -263,17 +292,21 @@ PR's REPORT.md):
   pipeline works around that: the bridge seeds contributions and commits
   matched sources to `SourceLedgerDoc` itself, then emits `{t:'sources'}`.
 
-Verified by the orchestrator at fix commit `ed3bd0d`: `npm run typecheck` 0
-errors, `npm run build` 0 errors, `npm run smoke` 15/15 (boot, WS handshake,
-view snapshot, submit -> transcript content round-trip, ping, real SIGTERM
-exit check). Docker image builds and boots; container serves the SPA and
-answers the join->view handshake. **B2 (`answer_delta` streaming) and B3 (live
-tool round) are wired against the published `pi-durable@1.0.0` types but NOT
-end-to-end tested — they require `PROVIDER_KEY`** (no live generation without
-an upstream provider). B1 (transcript content) and B4 (source pipeline:
-seed -> match -> commit -> emit, incl. late-joiner re-emit) were empirically
-verified by the reviewer against a scratch-built server. The milestone-1 demo
-therefore needs a model key in the container.
+Verified by the orchestrator at fix commit `ed3bd0d` (pre-split): `npm run
+typecheck` 0 errors, `npm run build` 0 errors, `npm run smoke` 15/15 (boot, WS
+handshake, view snapshot, submit -> transcript content round-trip, ping, real
+SIGTERM exit check). Post-split (`fe89c83`/`915262f`, re-verified at rebased
+`a5db7e5`): smoke 13/13 (the two static-serving assertions were correctly
+dropped), typecheck/build 0, `docker compose config` valid. Docker images build
+and boot; nginx serves the SPA + shared module; server answers the join->view
+handshake and content round-trip through the published port. **B2
+(`answer_delta` streaming) and B3 (live tool round) are wired against the
+published `pi-durable@1.0.0` types but NOT end-to-end tested — they require
+`PROVIDER_KEY`** (no live generation without an upstream provider). B1
+(transcript content) and B4 (source pipeline: seed -> match -> commit -> emit,
+incl. late-joiner re-emit) were empirically verified by the reviewer against a
+scratch-built server. The milestone-1 demo therefore needs a model key in the
+container.
 
 Residual non-blocking nits (full review in `.stoa/diffs/scaffold-poc-review/REPORT.md`):
 SPA streaming-bubble / interrupt lifecycle not cleared on commit;
@@ -287,7 +320,8 @@ silently fell back to the harness default (`deepseek-v4-flash-0731`), so the
 review shares the implementer's model family — it compensated by empirically
 probing the built server rather than trusting code reading.
 
-Next: human merges PR #1 (then `worktrees/stoa-poc-scaffold` can be archived);
-follow-ups from the milestone list — steer/fork/sources UI polish, one real
-contribution rule enforced by tool/hook, crash drill (`docker restart`
+Next: human merges PR #2 (`poc-split`); then `worktrees/stoa-poc-scaffold` can
+be archived and the rebased `worktrees/stoa-poc-split` worktree kept for
+follow-ups. Follow-ups from the milestone list — steer/fork/sources UI polish,
+one real contribution rule enforced by tool/hook, crash drill (`docker restart`
 mid-answer + reconnect catch-up).
