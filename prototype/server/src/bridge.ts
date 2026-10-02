@@ -283,6 +283,7 @@ export async function handleClient(harness: Harness, ws: WebSocket, _ctx: Contex
           break;
         }
         case "configure": {
+          if (!conversation) { send({ t: "error", message: "Join a room first" }); return; }
           send({ t: "error", message: "Tool configuration not implemented in POC milestone 1" });
           break;
         }

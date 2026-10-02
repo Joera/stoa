@@ -38,9 +38,8 @@ npm install && npm run build
 PORT=8080 npm start
 
 # Frontend (terminal 2)
-# Just open prototype/web/index.html in a browser,
-# or serve it with any static server:
-npx serve prototype/web
+node prototype/web/scripts/serve.mjs
+# → http://localhost:8081
 ```
 
 With a model key:
