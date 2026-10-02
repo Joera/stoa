@@ -81,8 +81,9 @@ export class StoaApp extends LitElement {
   private _connect() {
     // WS URL: ?ws= query override || window.STOA_WS_URL || DEFAULT_WS_URL
     const params = new URLSearchParams(location.search);
-    const WS_URL =
-      params.get("ws") || (window as any).STOA_WS_URL || DEFAULT_WS_URL;
+    const WS_URL = this._normalizeWsUrl(
+      params.get("ws") || (window as any).STOA_WS_URL || DEFAULT_WS_URL
+    );
 
     this._ws = new WebSocket(WS_URL);
 
@@ -165,6 +166,25 @@ export class StoaApp extends LitElement {
     this._ws.onerror = () => {
       this._ws?.close();
     };
+  }
+
+  // The server accepts WebSocket upgrades ONLY on the /ws path. Normalize the
+  // resolved URL so a bare host (pathname "" or "/") — e.g. the config.js
+  // default or a ?ws= override without the path — still reaches /ws. A URL that
+  // already has the /ws path (or any other explicit path) is left untouched,
+  // so the path is never appended twice.
+  private _normalizeWsUrl(url: string): string {
+    try {
+      const u = new URL(url);
+      if (u.pathname === "" || u.pathname === "/") {
+        u.pathname = "/ws";
+      }
+      return u.toString();
+    } catch {
+      // Not an absolute URL — WebSocket() will resolve it against the page
+      // origin as before. Leave untouched (zero behavior change).
+      return url;
+    }
   }
 
   // ── Handlers from child events
