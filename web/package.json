@@ -1,11 +1,12 @@
 {
-  "name": "stoa-web",
+  "name": "@stoa/web",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs"
   },
   "dependencies": {
+    "@stoa/shared": "workspace:*",
     "lit": "^3"
   },
   "devDependencies": {

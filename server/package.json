@@ -1,5 +1,5 @@
 {
-  "name": "stoa-server",
+  "name": "@stoa/server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,10 +7,13 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "dev": "node --watch --env-file-if-exists=.env dist/server.js",
     "start": "node --env-file-if-exists=.env dist/server.js",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "test": "pnpm run smoke"
   },
   "dependencies": {
+    "@stoa/shared": "workspace:*",
     "@earendil-works/pi-durable": "1.0.0",
     "@earendil-works/pi-ai": "1.0.0",
     "@earendil-works/chord": "1.0.0",

@@ -8,7 +8,7 @@ import {
   type SourceRecord,
 } from "./room-extension.js";
 
-// Protocol types from the shared single source of truth
+// Protocol types from the shared single source of truth (@stoa/shared workspace package)
 import type {
   ClientMessage,
   ServerMessage,
@@ -18,7 +18,7 @@ import type {
   InboxSnapshot,
   Op,
   SourceRef,
-} from "../../shared/protocol.js";
+} from "@stoa/shared";
 
 // ── Text extraction helpers ────────────────────────────────────────────────
 

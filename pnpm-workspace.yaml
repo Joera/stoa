@@ -1,0 +1,20 @@
+# Stoa pnpm workspace — flat, top-level members (s2s/s3ntiment convention)
+# Each member is a first-class directory alongside shared/; no packages/* glob.
+packages:
+  - 'shared'
+  - 'server'
+  - 'web'
+
+# Disable pnpm's minimum-release-age supply-chain gate (a local prototype repo
+# that pins an unpublished-to-the-registry @earendil-works toolchain).
+minimumReleaseAge: 0
+
+# Keep peer resolution stable (matches the committed lockfile's
+# `settings.autoInstallPeers: false`); pnpm otherwise flips it to true.
+autoInstallPeers: false
+
+# Allow native build scripts for installed dependencies (esbuild binary, etc.).
+allowBuilds:
+  '@google/genai': true
+  esbuild: true
+  protobufjs: true

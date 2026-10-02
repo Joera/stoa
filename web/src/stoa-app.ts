@@ -1,8 +1,8 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 
-// Consume the shared protocol module for message construction and recognition.
-// Marked external in esbuild — the browser loads /shared/protocol.js at runtime.
+// Consume the shared protocol module by package name — esbuild aliases
+// @stoa/shared → shared/src and bundles the raw TypeScript source into app.js.
 import {
   DEFAULT_WS_URL,
   makeJoin,
@@ -14,7 +14,7 @@ import {
   isTool,
   isSources,
   isError,
-} from "/shared/protocol.js";
+} from "@stoa/shared";
 
 import "./stoa-header.js";
 import "./stoa-rail.js";
