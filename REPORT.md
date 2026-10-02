@@ -1,101 +1,116 @@
-# Default WS URL derives from page hostname — Fix Report
+# Stop sending `chat_template_kwargs` to Venice — Fix Report
 
-**Branch:** `fix-ws-host-derived` (off `main` @ `84791a6`)
-**PR:** `fix-ws-host-derived` → `main` (title: "fix: default WS URL derives from page hostname (remote-view friendly)")
+**Branch:** `fix-venice-thinking-format` (off `main` @ `6dc94aa`)
+**PR:** `fix-venice-thinking-format` → `main` (title: "fix: stop sending chat_template_kwargs to Venice (empty-reply 400)")
 **Date:** 2026-10-02
-**Scope:** SMALL, SINGLE-CONCERN FIX — zero other behavior change. Only `web/config.js`
-edited. `server/` and `shared/` untouched (READ-ONLY).
+**Scope:** SMALL, SINGLE-CONCERN FIX — zero other behavior change. Only `server/src/server.ts`
+edited. `shared/`, `web/`, `bridge.ts` untouched.
 
-## Root cause
+## Root cause (pre-verified — not re-derived here)
 
-The web SPA is served statically on :8081, while the WS backend is `server/` on :8080
-(upgrades accepted **only** on `/ws`). The browser default WS URL was hardcoded to
-`ws://localhost:8080/ws` in `web/config.js`. When the page is viewed from a browser on
-the **same** machine as the server, `localhost` is correct. But when viewed over the
-network — e.g. from another machine on the same Tailscale tailnet at
-`http://bill.hippogryph-goldeye.ts.net:8081` — `localhost` resolves to the **viewer's**
-machine, so the browser tries `ws://localhost:8080/ws` on the wrong host and never
-connects. The tailnet path itself is fine (`ws://bill.hippogryph-goldeye.ts.net:8080/ws`
-completes the join → view handshake); only the *default* was wrong.
+`server/src/server.ts` declared the Venice provider compat as
+`thinkingFormat: "qwen-chat-template"`. pi-ai's openai-completions `buildParams` hardcodes
+that branch and emits a `chat_template_kwargs` object on **every** request. **Venice rejects
+that key**: a direct probe returned HTTP 400 `Invalid request parameters` /
+`issues: [{code:'unrecognized_keys', keys:['chat_template_kwargs']}]`. Removing
+`chat_template_kwargs` returns HTTP 200 with a real answer. pi-durable persists the 400 as
+an empty `pi.assistant` entry (`stopReason:error`) — the empty reply the user sees.
+Secondary: `chatTemplateKwargs: { enable_thinking: true, preserve_thinking: false }` was
+**inert** anyway, because the `qwen-chat-template` branch it feeds is never taken by
+Venice's openai-completions path.
 
 ## Chosen fix + why
 
-Derive the default WS host from the page's own hostname at load time
-(`web/config.js`, line 14):
+In `server/src/server.ts`, compat block:
 
-```js
-window.STOA_WS_URL = `ws://${location.hostname}:8080/ws`;
+```diff
+           maxTokensField: "max_tokens",
+-          thinkingFormat: "qwen-chat-template",
+-          chatTemplateKwargs: { enable_thinking: true, preserve_thinking: false },
++          thinkingFormat: "openai",
+           requiresReasoningContentOnAssistantMessages: true,
 ```
 
-Why this shape:
-- **Same-host-aware by construction.** `location.hostname` is `localhost` when the page
-  is served locally (→ `ws://localhost:8080/ws`) and the tailnet hostname when served
-  remotely (→ `ws://bill.hippogryph-goldeye.ts.net:8080/ws`). No per-machine config.
-- **Port 8080 and the `/ws` path stay fixed** — they are server-deployed constants, not
-  viewer-dependent.
-- **`config.js` is a plain browser script** loaded by `index.html` before the module
-  bundle, so `location` is available at load time (no module/`import.meta.url` gymnastics).
-- **`?ws=` override still wins.** `_connect()` in `web/src/stoa-app.ts` checks the query
-  param first (`params.get("ws") || window.STOA_WS_URL || DEFAULT_WS_URL`) — that ordering
-  is **unchanged**. This config.js value is only the fallback default.
-- **`_normalizeWsUrl()` untouched (safety net).** It still normalizes a bare host to `/ws`,
-  never double-appends (the derived URL already carries `/ws` and is left alone), and keeps
-  its `try/catch` fallback. Zero behavior change.
-- **`shared/` untouched.** `DEFAULT_WS_URL` keeps its localhost literal as a pure fallback;
-  it is shadowed by `window.STOA_WS_URL` in practice.
-- **No TLS/wss, no new features** — out of scope.
+- `thinkingFormat` → `"openai"`: the openai-completions build path (the only path Venice
+  speaks) no longer takes the hardcoded `qwen-chat-template` branch, so
+  `chat_template_kwargs` is never constructed.
+- `chatTemplateKwargs` line **dropped entirely**: under `"openai"` the flag would be
+  meaningless at best; dropping it guarantees the rejected key can never appear in any
+  request payload, whatever pi-ai does with compat flags.
+- `requiresReasoningContentOnAssistantMessages` **kept** — unrelated to the rejected key;
+  not part of the probe failure.
+- **Declared thinking intent:** the old config wanted `enable_thinking: true`, but that
+  flag was provably inert under `qwen-chat-template` (the branch is never taken). Under
+  `"openai"`, thinking is expressed through pi-ai's reasoning-effort path: the model keeps
+  `reasoning: true` and the existing `thinkingLevelMap` (minimal…max → low/medium/high)
+  unchanged. Per the acceptance contract, a **working reply is the priority**; whether
+  Venice surfaces thinking content for `deepseek-v4-flash-0731` is orthogonal to this 400
+  and left at the model default. No new feature was added.
 
 ## Acceptance gates
 
 | # | Gate | Exact command | Result |
 |---|------|---------------|--------|
-| 1 | Web bundle builds | `pnpm -C web run build` | ✅ `Built: .../web/dist/app.js` (exit 0) |
-| 2a | Server typecheck 0 errors | `pnpm -C server run typecheck` | ✅ exit 0, 0 errors (after `pnpm -C shared run build` — fresh worktree had no `shared/dist`; build artifacts are gitignored) |
-| 2b | Server smoke (server untouched) | `pnpm -C server run smoke` | ✅ **12 passed, 0 failed** (boots its own :19876 instance; live :8080 untouched) |
-| 3 | Functional proof | `node .ws-host-proof-tmp.mjs` (then removed) | ✅ see below |
-| 4 | Bundle sanity | `grep` of `web/config.js` + `web/dist/app.js` | ✅ derived construction `location.hostname` in served `config.js`; `_normalizeWsUrl` in bundle; `shared` fallback intact |
-| 5 | Repo hygiene | `git status` / `git diff` | ✅ only `web/config.js` modified; no stray files; no API keys |
+| 1 | Server typecheck 0 errors | `pnpm -C server run typecheck` | ✅ exit 0, 0 errors (fresh worktree needs `pnpm -C shared run build` first — no `shared/dist`; artifacts are gitignored) |
+| 2 | Server smoke | `pnpm -C server run smoke` | ✅ **12 passed, 0 failed** |
+| 3 | E2E proof (money gate) | ws client → `ws://localhost:8080/ws`, join `main`, submit `{t:'submit', content:'hello', requestId:'t1'}` | ✅ before/after snapshot + `[res-hook] assistantLen>0`, see below |
+| 4 | Repo hygiene | `git status` / `git diff` | ✅ only `server/src/server.ts` + `REPORT.md` changed; no keys in diff; no stray files |
 
-### Gate 3 — functional proof (stubbed `location.hostname` + live tailnet handshake)
-
-Evaluated the exact `config.js` expression under stubbed `location` objects, then ran a
-real `ws` client against the **running** :8080 server over the tailnet hostname (server
-was **not** stopped or restarted):
+### Gate 1–2 detail
 
 ```
-STEP 1 — config.js default URL derivation (stubbed location.hostname)
-  location.hostname = 'localhost'              -> ws://localhost:8080/ws
-  location.hostname = 'bill.hippogryph-goldeye.ts.net' -> ws://bill.hippogryph-goldeye.ts.net:8080/ws
-  PASS local default  (expect ws://localhost:8080/ws)
-  PASS remote default (expect ws://bill.hippogryph-goldeye.ts.net:8080/ws)
+$ pnpm -C shared run build && pnpm -C server run build && pnpm -C server run typecheck
+$ tsc --noEmit            # 0 errors
 
-STEP 2 — live handshake over the tailnet hostname (server on :8080)
-  WS open (tailnet hostname)
-  {t:'view'} received — entries=0 live={"generation":null,"tools":[]}
-  PASS join -> view handshake over tailnet hostname
+$ pnpm -C server run smoke
+Results: 12 passed, 0 failed
+```
+(Smoke caveats — no `VENICE_INFERENCE_KEY`, so no live model answer — are the pre-existing
+expected behavior of the smoke test itself.)
+
+### Gate 3 — E2E proof (fixed code + diagnostic instrumentation)
+
+The acceptance requires the `[res-hook]` log line. That instrumentation lives on the
+diagnostic branch (`add-server-logs-docker2`, the stack the investigation used), which
+still carried the **buggy** compat. To prove the fix through exactly that seam without
+touching any worktree, the diagnostic branch was copied to an isolated scratch dir
+(`/tmp/stoa-e2e`), the **identical one-line fix** applied (compat block verified
+byte-identical to the shipped commit), the poisoned room reset
+(`docker compose down -v`), and the stack rebuilt (`docker compose up -d --build`) with
+the real `VENICE_INFERENCE_KEY` (via the branch's `env_file: server/.env`).
+
+**BEFORE** — view snapshot after join (room clean after `down -v`):
+```json
+{ "entriesCount": 0, "entries": [], "live": { "generation": null, "tools": [] }, "inbox": [] }
 ```
 
-### Gate 4 — bundle sanity
-
-- `web/config.js` (served verbatim by `web/scripts/serve.mjs` / nginx as a static file):
-  contains the derived construction `ws://${location.hostname}:8080/ws`.
-- `web/dist/app.js`: still contains `_normalizeWsUrl` (grep count 2); `DEFAULT_WS_URL`
-  fallback (`shared/`, untouched) still present and composed from its constants.
-
-## Manual fallback (?ws= override)
-
-For any remote viewer whose default derivation is undesirable (or before this fix
-deploys), append the override to the page URL:
-
+**AFTER** — view snapshot after submitting `{t:'submit', content:'hello', requestId:'t1'}`:
+```json
+{
+  "entriesCount": 3,
+  "entries": [
+    { "id": "7",  "kind": "pi.user",      "role": "user",      "content": "hello",                            "contentLen": 5 },
+    { "id": "10", "kind": "pi.system",     "role": "system",     "content": "",                                "contentLen": 0 },
+    { "id": "11", "kind": "pi.assistant",  "role": "assistant",  "content": "Hello! How can I help you today?", "contentLen": 32 }
+  ],
+  "live": { "generation": null, "tools": [] },
+  "inbox": []
+}
 ```
-http://bill.hippogryph-goldeye.ts.net:8081/?ws=ws://bill.hippogryph-goldeye.ts.net:8080/ws
-```
+`RESULT: PASS — non-empty assistant reply` · commits=3 deltas=1 **errors=0**
 
-The `?ws=` query param is checked first by `_connect()` and always wins over the
-config.js default.
+**Container logs** — the money line (and no 400 anywhere):
+```
+[2026-10-02T18:35:30.382Z] [msg] conn=c1 t=submit textLen=5 field=content
+[2026-10-02T18:35:30.382Z] [req] conn=c1 corr=tmurazqha-1 submit contentLen=5 msgs=0
+[2026-10-02T18:35:32.052Z] [res-hook] assistantLen=32 empty=false stopReason=stop
+[2026-10-02T18:35:32.058Z] [res] conn=c1 corr=tmurazqha-1 assistantLen=32 empty=false stopReason=stop
+```
+`[res-hook] assistantLen=32 empty=false` — **not** `empty=true`. Venice accepted the
+request (no `chat_template_kwargs` → no 400 → real HTTP 200 answer), and pi-durable
+persisted a non-empty `pi.assistant` entry.
 
 ## Diff
 
-- `web/config.js` — `window.STOA_WS_URL = "ws://localhost:8080/ws"` →
-  `window.STOA_WS_URL = \`ws://${location.hostname}:8080/ws\``; comments updated to
-  document the hostname-derivation and the unchanged override precedence.
+- `server/src/server.ts` — compat block: `thinkingFormat: "qwen-chat-template"` →
+  `"openai"`; `chatTemplateKwargs` line removed. Nothing else changed.
