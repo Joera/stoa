@@ -320,8 +320,78 @@ silently fell back to the harness default (`deepseek-v4-flash-0731`), so the
 review shares the implementer's model family — it compensated by empirically
 probing the built server rather than trusting code reading.
 
-Next: human merges PR #2 (`poc-split`); then `worktrees/stoa-poc-scaffold` can
-be archived and the rebased `worktrees/stoa-poc-split` worktree kept for
-follow-ups. Follow-ups from the milestone list — steer/fork/sources UI polish,
-one real contribution rule enforced by tool/hook, crash drill (`docker restart`
-mid-answer + reconnect catch-up).
+~~Next: human merges PR #2 (`poc-split`)…~~ **Superseded — see the updated
+status below (2026-10-02, later).** PR #2 was merged; the work continued.
+
+## Implementation status (2026-10-02, later — supersedes the above)
+
+**Stage 3 — web-lit: PR #3 (MERGED).** `web-lit` rebuilt `prototype/web` as real
+Lit 3 components bundled with esbuild (tsconfig keeps `experimentalDecorators`
++ `useDefineForClassFields:false` for the legacy-decorator requirement),
+carrying the B1–B4 fixes (commits `4f34322` / `c95433e` / `041aa6d`). Merged by
+the human.
+
+**Stage 4 — Venice provider: PR #4 (MERGED at `45f9443`).** `provider-venice`
+added the Venice provider to the server: `createProvider<"openai-completions">`
+with `openAICompletionsApi()`, `auth.apiKey.resolve`, model
+`deepseek-v4-flash-0731` (`enable_thinking:true` / `preserve_thinking:false`,
+`thinkingFormat:"qwen-chat-template"`); API key read from gitignored `.env`
+(`VENICE_INFERENCE_KEY`), never committed. Post-merge review: **APPROVE-WITH-NITS**
+— all 5 items PASS (secrets hygiene airtight; wiring typechecks vs
+pi-ai@1.0.0; per-agent model selection `bridge.ts:217`
+`ModelRef{provider:"venice",modelId}`; keyless boot verified live, smoke 12/0;
+no protocol regression). Report: `.stoa/diffs/provider-venice-review.md`.
+Open follow-up: **thinking runs OFF by default** — pi-ai hardcodes
+`enable_thinking=!!reasoningEffort` / `preserve_thinking=true` and the bridge
+sets no `thinkingLevel`; `chatTemplateKwargs` is inert under
+`qwen-chat-template`. Fold-into-monorepo vs separate fix: user's call (still
+open).
+
+**Stage 5 — monorepo restructure: PR #5 (OPEN, ready to merge).**
+`monorepo-restructure` turned `~/stoa` into a pnpm monorepo matching the
+s2s/s3ntiment convention: flat top-level `shared/` `server/` `web/` (no
+`packages/*` glob), root `pnpm-workspace.yaml` + `package.json`
+(`@stoa/monorepo`, private, shared-first `build`) + committed `pnpm-lock.yaml`;
+`prototype/` removed via `git mv`. `@stoa/shared` is now a **buildable TS
+package**: `shared/src/protocol.ts` merged the old `protocol.js` + hand-written
+`protocol.d.ts` (the `.d.ts` is deleted; types are now emitted by tsc
+`--declaration`), `exports` map → `dist/`. Both consumers import `@stoa/shared`
+**by name**: server (Node) resolves the built `dist/` via `workspace:*` pnpm
+symlink; web bundles the raw TS source via esbuild `alias` `@stoa/shared →
+shared/src` (the s2s browser pattern). The runtime `/shared/protocol.js` URL,
+esbuild `external`, nginx `/shared/` location, Dockerfile COPY, and `serve.mjs`
+`/shared/` mapping are all removed. Legacy decorators preserved (gate:
+`__decorateClass` ×23 / `__decorateElement` ×0, no `Unsupported decorator
+location` error). `docker-compose.yml` moved to repo root (server :8080 / web
+:8081). Venice provider unchanged (zero behavioral change, structural only).
+
+Verified by the orchestrator at head `bc8a7ce`: `pnpm -C shared run build`
+→ `dist/{index,protocol}.{js,d.ts}`; server typecheck 0 / build 0 / smoke
+**12 passed, 0 failed** (3 expected no-key caveats); web build OK with 0
+`/shared/protocol.js` refs; `docker compose config` valid + `up --build` boots
+both; fixed-string `../shared` empty (by-name imports only); 0 key patterns in
+the diff (key only in gitignored `server/.env`). Independent review (DeepSeek
+Flash — same-family, per the user's locked model policy): **APPROVE-WITH-NITS**,
+all 8 contract items PASS, no blockers. Nits: (1) smoke 12-vs-13 — **resolved,
+12 is the live truth at head** (the old report documented an earlier script
+state); (2) `pnpm-workspace.yaml` comment calls the first-party toolchain
+"unpublished-to-the-registry" but `@earendil-works/*` resolve from
+registry.npmjs.org (published, just inside the 24h min-age window) — plus
+`minimum-release-age` declared in both `.npmrc` and the workspace yaml
+(redundant); (3) README tree-art `└──` should be `├──` on `scripts/build.mjs`
+(cosmetic); (4) lockfile `@types/node` drift 22.20.4 vs 22.20.5 (harmless).
+Report: `.stoa/diffs/monorepo-restructure-review.md`.
+
+**Current layout** (`~/stoa`, main + PR #5): root `pnpm-workspace.yaml`,
+`package.json`, `pnpm-lock.yaml`, `docker-compose.yml`, `.gitignore`,
+`.dockerignore`, `.env.example`, `README.md`; `shared/`
+(`src/{index,protocol}.ts`, tsconfig, package.json → dist), `server/`
+(`@stoa/server`), `web/` (`@stoa/web`); `brain/` and `.stoa/` untouched. `.env`
+now lives at `server/.env` (server package).
+
+Next: human merges PR #5; re-locate `.env` per the new layout and re-verify the
+Venice key path (`server/.env`); then the open provider item (thinking-off-by-
+default — small fix or standalone task) and the milestone-2 follow-ups
+(steer/fork/sources UI polish, one real contribution rule enforced by
+tool/hook, crash drill). Stale worktrees to archive: `stoa-poc-scaffold`,
+`stoa-poc-split`, `stoa-provider`, `stoa-web-lit` (keep `stoa-monorepo`).
