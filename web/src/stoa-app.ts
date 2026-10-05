@@ -1,4 +1,4 @@
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import Navigo from "navigo";
 
@@ -8,7 +8,6 @@ import {
   DEFAULT_WS_URL,
   makeJoin,
   makeSubmit,
-  makeInterrupt,
   isView,
   isCommit,
   isAnswerDelta,
@@ -21,6 +20,7 @@ import "./stoa-header.js";
 import "./stoa-transcript.js";
 import "./stoa-composer.js";
 import "./stoa-contributions.js";
+import "./stoa-menu.js";
 
 interface Entry {
   id: string;
@@ -45,9 +45,11 @@ export class StoaApp extends LitElement {
   // never re-opens the socket, drops entries, or loses the live answer.
   @state() private _route: string = "/";
 
+  // Menu drawer (hamburger → <stoa-menu>) open/closed.
+  @state() private _menuOpen = false;
+
   private _ws: WebSocket | null = null;
   private _router: Navigo | null = null;
-  private _interruptCheckInterval: ReturnType<typeof setInterval> | null = null;
 
   static styles = css`
     :host {
@@ -63,18 +65,10 @@ export class StoaApp extends LitElement {
     super.connectedCallback();
     this._connect();
     this._initRouter();
-    // Poll for interrupt button state (enabled while liveGeneration is active)
-    this._interruptCheckInterval = setInterval(() => {
-      this.requestUpdate();
-    }, 500);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    if (this._interruptCheckInterval) {
-      clearInterval(this._interruptCheckInterval);
-      this._interruptCheckInterval = null;
-    }
     if (this._router) {
       this._router.destroy();
       this._router = null;
@@ -113,12 +107,24 @@ export class StoaApp extends LitElement {
   }
 
   // ── Navigation handlers (child events → router)
-  private _onNavContributions() {
-    this._router?.navigate("/contributions");
-  }
-
   private _onBack() {
     this._router?.navigate("/");
+  }
+
+  // ── Menu handlers (hamburger + <stoa-menu> events)
+  private _onMenuOpen() {
+    // Header hamburger toggles the drawer; backdrop/Escape/nav close it below.
+    this._menuOpen = !this._menuOpen;
+  }
+
+  private _onMenuClose() {
+    this._menuOpen = false;
+  }
+
+  private _onMenuNavigate(e: CustomEvent) {
+    const route = e.detail?.route;
+    if (route) this._router?.navigate(route);
+    this._menuOpen = false;
   }
 
   // ── WebSocket
@@ -242,11 +248,6 @@ export class StoaApp extends LitElement {
     );
   }
 
-  private _onInterrupt() {
-    if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return;
-    this._ws.send(JSON.stringify(makeInterrupt()));
-  }
-
   render() {
     // Route changes only swap which view renders — the socket and state above
     // are untouched, so / → /contributions → / preserves entries, live tools,
@@ -261,7 +262,7 @@ export class StoaApp extends LitElement {
       <stoa-header
         title="Research Room"
         .connected=${this._connected}
-        @stoa-nav-contributions=${this._onNavContributions}
+        @stoa-menu-open=${this._onMenuOpen}
       ></stoa-header>
       <stoa-transcript
         .entries=${this._entries}
@@ -269,11 +270,16 @@ export class StoaApp extends LitElement {
         .liveTools=${this._liveTools}
         ._toolsVersion=${this._toolsVersion}
       ></stoa-transcript>
-      <stoa-composer
-        ?interrupt-enabled=${!!this._liveGeneration}
-        @stoa-submit=${this._onSubmit}
-        @stoa-interrupt=${this._onInterrupt}
-      ></stoa-composer>
+      <stoa-composer @stoa-submit=${this._onSubmit}></stoa-composer>
+      ${this._menuOpen
+        ? html`
+            <stoa-menu
+              .connected=${this._connected}
+              @stoa-menu-close=${this._onMenuClose}
+              @stoa-menu-navigate=${this._onMenuNavigate}
+            ></stoa-menu>
+          `
+        : nothing}
     `;
   }
 }

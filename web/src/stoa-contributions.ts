@@ -19,15 +19,15 @@ export class StoaContributions extends LitElement {
       flex-direction: column;
       flex: 1;
       min-height: 0; /* allow the page body to scroll instead of the host */
-      background: var(--bg, #1a1a2e);
+      background: var(--bg, #fafaf7);
     }
     header {
       display: flex;
       align-items: center;
       gap: 12px;
       padding: 10px 16px;
-      background: var(--surface, #16213e);
-      border-bottom: 1px solid var(--border, #2a2a4a);
+      background: var(--surface, #f2f2ec);
+      border-bottom: 1px solid var(--border, #ddddd5);
       flex-shrink: 0;
     }
     h2 {
@@ -42,9 +42,9 @@ export class StoaContributions extends LitElement {
       min-height: 40px; /* touch-friendly tap target */
       padding: 0 14px;
       border-radius: 8px;
-      border: 1px solid var(--border, #2a2a4a);
-      background: var(--surface2, #0f3460);
-      color: var(--text, #e6e6e6);
+      border: 1px solid var(--border, #ddddd5);
+      background: var(--surface2, #e8e8e0);
+      color: var(--text, #111);
       font-size: 14px;
       font-weight: 600;
       cursor: pointer;
@@ -63,13 +63,13 @@ export class StoaContributions extends LitElement {
     }
     h3 {
       font-size: 13px;
-      color: var(--dim, #8892a4);
+      color: var(--dim, #8a8a80);
       margin: 0 0 12px 0;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
     .contrib-card {
-      background: var(--surface2, #0f3460);
+      background: var(--surface2, #e8e8e0);
       border-radius: 8px;
       padding: 14px 16px;
       margin-bottom: 10px;
@@ -81,7 +81,7 @@ export class StoaContributions extends LitElement {
       margin-bottom: 6px;
     }
     .contrib-card .meta {
-      color: var(--dim, #8892a4);
+      color: var(--dim, #8a8a80);
       font-size: 12px;
     }
   `;

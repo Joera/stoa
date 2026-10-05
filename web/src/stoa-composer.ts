@@ -1,33 +1,39 @@
 import { LitElement, html, css } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { customElement } from "lit/decorators.js";
 
+/**
+ * Message composer — just an input + Send button now.
+ *
+ * The old ⏹ stop button and its enabled-state plumbing were removed as part of
+ * the mobile-first header redesign; the stop control is no longer surfaced in
+ * the room chrome. Input keeps 16px font-size (>=16px prevents iOS auto-zoom).
+ */
 @customElement("stoa-composer")
 export class StoaComposer extends LitElement {
-  @property({ type: Boolean }) interrupting = false;
-  @property({ type: Boolean, attribute: "interrupt-enabled" }) interruptEnabled = false;
-
   static styles = css`
     :host {
       display: flex;
       gap: 8px;
       padding: 12px 20px;
-      background: var(--surface, #16213e);
-      border-top: 1px solid var(--border, #2a2a4a);
+      background: var(--surface, #f2f2ec);
+      border-top: 1px solid var(--border, #ddddd5);
     }
     input {
       flex: 1;
+      min-width: 0;
       padding: 10px 14px;
       border-radius: 8px;
-      border: 1px solid var(--border, #2a2a4a);
-      background: var(--bg, #1a1a2e);
-      color: var(--text, #e6e6e6);
+      border: 1px solid var(--border, #ddddd5);
+      background: var(--bg, #fafaf7);
+      color: var(--text, #111);
       font-size: 16px; /* >=16px prevents iOS auto-zoom on focus */
       outline: none;
     }
     input:focus {
       border-color: var(--accent, #e94560);
     }
-    button {
+    #send-btn {
+      flex-shrink: 0;
       padding: 10px 18px;
       border: none;
       border-radius: 8px;
@@ -35,18 +41,8 @@ export class StoaComposer extends LitElement {
       font-size: 14px;
       font-weight: 600;
       white-space: nowrap;
-    }
-    #send-btn {
       background: var(--accent, #e94560);
       color: #fff;
-    }
-    #interrupt-btn {
-      background: var(--border, #2a2a4a);
-      color: var(--text, #e6e6e6);
-    }
-    #interrupt-btn:disabled {
-      opacity: 0.5;
-      cursor: default;
     }
   `;
 
@@ -65,12 +61,6 @@ export class StoaComposer extends LitElement {
     if (e.key === "Enter") this._onSend();
   }
 
-  private _onInterrupt() {
-    this.dispatchEvent(
-      new CustomEvent("stoa-interrupt", { bubbles: true, composed: true })
-    );
-  }
-
   render() {
     return html`
       <input
@@ -79,13 +69,6 @@ export class StoaComposer extends LitElement {
         @keydown=${this._onKeyDown}
       />
       <button id="send-btn" @click=${this._onSend}>Send</button>
-      <button
-        id="interrupt-btn"
-        ?disabled=${!this.interruptEnabled}
-        @click=${this._onInterrupt}
-      >
-        ⏹ Interrupt
-      </button>
     `;
   }
 }
