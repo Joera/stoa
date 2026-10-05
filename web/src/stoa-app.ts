@@ -259,7 +259,7 @@ export class StoaApp extends LitElement {
     }
     return html`
       <stoa-header
-        title="Stoa Room"
+        title="Research Room"
         .connected=${this._connected}
         @stoa-nav-contributions=${this._onNavContributions}
       ></stoa-header>

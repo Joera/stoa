@@ -3,12 +3,13 @@ services:
     build:
       context: .
       dockerfile: server/Dockerfile
+    # Key + model config come from server/.env at compose time (never baked into
+    # the image — .env is gitignored + dockerignored). Create it from
+    # server/.env.example if missing. Dockerfile ENV defaults cover the rest.
+    env_file:
+      - server/.env
     ports:
       - "8080:8080"
-    environment:
-      - VENICE_INFERENCE_KEY=${VENICE_INFERENCE_KEY:-}
-      - MODEL=${MODEL:-deepseek-v4-flash-0731}
-      - VENICE_BASE_URL=${VENICE_BASE_URL:-https://api.venice.ai/api/v1}
     volumes:
       - stoa-data:/data
     restart: unless-stopped

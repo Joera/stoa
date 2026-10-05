@@ -22,21 +22,23 @@ export class StoaMessage extends LitElement {
     }
     .msg.user {
       margin-left: auto;
-      background: var(--user-bubble, #0f3460);
+      background: var(--user-bubble, #fff);
+      border: 1px solid #ddd;
     }
     .msg.assistant {
-      background: var(--assistant-bubble, #16213e);
+      background: var(--assistant-bubble, #ddd);
+      border: 1px solid #ddd;
     }
     .msg.system {
       margin: 0 auto;
       background: none;
-      color: var(--dim, #8892a4);
+      color: var(--dim, #fff);
       font-size: 12px;
       font-style: italic;
     }
     .msg.tool {
       margin: 0 auto;
-      background: var(--border, #2a2a4a);
+      background: var(--border, #fff);
       font-size: 12px;
       font-family: monospace;
     }

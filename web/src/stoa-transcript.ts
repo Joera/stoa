@@ -34,8 +34,8 @@ export class StoaTranscript extends LitElement {
       line-height: 1.5;
       white-space: pre-wrap;
       word-break: break-word;
-      background: var(--assistant-bubble, #16213e);
-      border-left: 3px solid var(--accent, #e94560);
+      background: var(--assistant-bubble, #fff);
+      border-left: 3px solid var(--accent, #ccc);
       display: none;
     }
     .streaming.active {
