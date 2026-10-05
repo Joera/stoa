@@ -83,3 +83,37 @@ Both scripts end with `process.exit(0)`; both returned exit 0 in ~1 second (veri
 
 Probe scripts live at `/tmp/stoa-probe/{probe,probe-deeplink}.mjs` (kept outside the worktree so the
 repo stays clean).
+
+---
+
+## Addendum — merge with main (colors), 2026-10-05
+
+PR #10 went CONFLICTING after main moved on (`0f0a375` "colors" landed on `f8d4e86` via PR #8).
+Merged `origin/main` into `mobile-nav` and resolved all conflicts; PR #10 is now **MERGEABLE
+(mergeStateStatus CLEAN)** at `b01309f` (merge commit, parents `e7522b8` + `e5b20e4`).
+
+- `web/src/stoa-rail.ts` — **deletion kept** (modify/delete conflict). Rail is gone; contributions
+  live on the `/#/contributions` page. main's colors edits to the rail were obsolete and dropped.
+- `web/src/stoa-app.ts` — kept PR #10's routing refactor (navigo hash router, `_route`, single
+  WS/state, `<stoa-header @stoa-nav-contributions>`); applied colors' `title="Research Room"`.
+- `web/src/stoa-header.ts` — kept mobile-nav's compact `:host` spacing (`gap:12px; padding:10px 16px`)
+  and merged colors' `background: var(--surface, #fff)` + `border-bottom: 1px solid var(--border, #111)`;
+  colors' `title = "Research Room"` and `#status.connected color: #111` were already present on mobile-nav.
+- Auto-merged `web/index.html`, `web/src/stoa-message.ts`, `web/src/stoa-transcript.ts` — byte-identical
+  to `origin/main` (all colors changes preserved: light theme vars, `Research Room` title, bubble borders).
+- `.stoa/registry.json` — auto-merged, untouched. `REPORT.md` conflict (main's PR #8 report vs ours)
+  resolved to the mobile-nav report + this addendum.
+- Uncommitted `REPORT.md` from the previous session was committed first (`e7522b8`) to keep the merge clean.
+
+### Gates re-run at resolved head `b01309f` (all green)
+
+| Gate | Result |
+|---|---|
+| `pnpm -C web run build` | ✅ `Built: …/web/dist/app.js` |
+| `pnpm -C server run typecheck` (`tsc --noEmit`) | ✅ 0 errors |
+| `pnpm -C server run build` (`tsc`) | ✅ 0 errors |
+| `cd server && npm test` | ✅ **12 passed, 0 failed** |
+| `docker compose config` | ✅ valid (placeholder `server/.env` from example, removed after) |
+| secrets grep over merge diff | ✅ none |
+| `/tmp/stoa-probe/probe.mjs` | ✅ 23/23 PASS, exit 0, ~1s |
+| `/tmp/stoa-probe/probe-deeplink.mjs` | ✅ 4/4 PASS, exit 0, ~1s |
