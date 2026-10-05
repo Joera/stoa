@@ -21,7 +21,7 @@ export class StoaComposer extends LitElement {
       border: 1px solid var(--border, #2a2a4a);
       background: var(--bg, #1a1a2e);
       color: var(--text, #e6e6e6);
-      font-size: 14px;
+      font-size: 16px; /* >=16px prevents iOS auto-zoom on focus */
       outline: none;
     }
     input:focus {

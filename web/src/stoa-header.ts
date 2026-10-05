@@ -11,7 +11,8 @@ export class StoaHeader extends LitElement {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 20px;
+      gap: 12px;
+      padding: 10px 16px;
       background: var(--surface, #fff);
       border-bottom: 1px solid var(--border, #111);
     }
@@ -19,10 +20,34 @@ export class StoaHeader extends LitElement {
       font-size: 16px;
       margin: 0;
     }
+    #actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .nav-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px; /* touch-friendly tap target */
+      padding: 0 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border, #2a2a4a);
+      background: var(--surface2, #0f3460);
+      color: var(--text, #e6e6e6);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .nav-link:active {
+      opacity: 0.8;
+    }
     #status {
       font-size: 12px;
       padding: 4px 10px;
       border-radius: 12px;
+      white-space: nowrap;
     }
     #status.connected {
       background: var(--green, #00b894);
@@ -34,12 +59,26 @@ export class StoaHeader extends LitElement {
     }
   `;
 
+  private _onContributions() {
+    this.dispatchEvent(
+      new CustomEvent("stoa-nav-contributions", {
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
   render() {
     return html`
       <h2>${this.title}</h2>
-      <span id="status" class=${this.connected ? "connected" : "disconnected"}>
-        ${this.connected ? "connected" : "disconnected"}
-      </span>
+      <div id="actions">
+        <span id="status" class=${this.connected ? "connected" : "disconnected"}>
+          ${this.connected ? "connected" : "disconnected"}
+        </span>
+        <button class="nav-link" @click=${this._onContributions}>
+          Contributions
+        </button>
+      </div>
     `;
   }
 }

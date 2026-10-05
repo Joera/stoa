@@ -1,124 +1,119 @@
-# Stop sending `chat_template_kwargs` to Venice — Fix Report
+# Mobile Nav Routing with Contributions Page — Handoff/Finish Report
 
-**Branch:** `fix-venice-thinking-format` (off `main` @ `6dc94aa`)
-**PR:** `fix-venice-thinking-format` → `main` (title: "fix: stop sending chat_template_kwargs to Venice (empty-reply 400)")
-**Date:** 2026-10-02
-**Scope:** SMALL, SINGLE-CONCERN FIX — zero other behavior change. Only `server/src/server.ts`
-edited. `shared/`, `web/`, `bridge.ts` untouched.
+**Branch:** `mobile-nav` (off `main` @ `f8d4e86`)
+**PR:** https://github.com/Joera/stoa/pull/10 — "feat(web): mobile nav routing with contributions page"
+**Date:** 2026-10-05
+**Scope:** `web/` ONLY — `server/` and `shared/` untouched (verified: no diffs outside `web/`, `pnpm-lock.yaml`).
 
-## Root cause (pre-verified — not re-derived here)
+This session took over an existing worktree whose implementation edits were intact but whose
+verification probe had wedged the previous session (the probe opened a LIVE WebSocket to a local
+server and never exited). No code was reverted or rewritten from the in-progress approach; the
+edits were inspected, kept as-is, and taken to a green, reviewed, PR'd state with a terminating probe.
 
-`server/src/server.ts` declared the Venice provider compat as
-`thinkingFormat: "qwen-chat-template"`. pi-ai's openai-completions `buildParams` hardcodes
-that branch and emits a `chat_template_kwargs` object on **every** request. **Venice rejects
-that key**: a direct probe returned HTTP 400 `Invalid request parameters` /
-`issues: [{code:'unrecognized_keys', keys:['chat_template_kwargs']}]`. Removing
-`chat_template_kwargs` returns HTTP 200 with a real answer. pi-durable persists the 400 as
-an empty `pi.assistant` entry (`stopReason:error`) — the empty reply the user sees.
-Secondary: `chatTemplateKwargs: { enable_thinking: true, preserve_thinking: false }` was
-**inert** anyway, because the `qwen-chat-template` branch it feeds is never taken by
-Venice's openai-completions path.
+## Contract compliance
 
-1. **Server-side request/response logging** in `server/src/*.ts` only
-   (`log.ts` new, `bridge.ts`, `server.ts`, `room-extension.ts` edited). Every line
-   is tagged with an ISO timestamp and a per-turn correlation id (`corr=...`) plus
-   a per-connection id (`conn=...`). Output is `console.log`/`console.error`, so it
-   appears in `docker compose logs -f server`.
-2. **Docker run path** — the app now runs as containers via `docker compose up
-   --build` (server :8080, web :8081). The Venice key is injected at runtime via
-   `env_file: server/.env` — never baked into the image, never committed
-   (`server/.env` is gitignored + dockerignored).
+1. **navigo hash routing** — `<stoa-app>` owns `new Navigo("/", { hash: true })` (navigo v8 spelling
+   of v7's `useHash`). Routes: `/` and `/contributions`; only `_route` is updated, rendering is a
+   plain conditional below the router.
+2. **`/#/` = room view, single-column, no rail** — `web/src/stoa-rail.ts` deleted; header +
+   transcript + composer render directly (column flex host). No `<stoa-rail>` anywhere.
+3. **`/#/contributions` = separate contributions page** — new `web/src/stoa-contributions.ts` with
+   the same static contribution cards that used to live in the rail, plus a Back-to-Room link that
+   dispatches `stoa-back` → `router.navigate("/")`.
+4. **Single WS + single app state that survives route changes** — the WebSocket, `_entries`,
+   `_liveGeneration`, `_liveTools` all live on `<stoa-app>` and are never torn down by routing;
+   `connectedCallback` calls `_connect()` exactly once. Route flips (button clicks and browser
+   back/forward) only re-render, so no second socket opens and no state is lost.
+5. **web/ only** — no `server/` or `shared/` source changes.
 
-In `server/src/server.ts`, compat block:
+## Commits
 
-```diff
-           maxTokensField: "max_tokens",
--          thinkingFormat: "qwen-chat-template",
--          chatTemplateKwargs: { enable_thinking: true, preserve_thinking: false },
-+          thinkingFormat: "openai",
-           requiresReasoningContentOnAssistantMessages: true,
-```
+- `616775e` `chore(web): add navigo@8 hash router dependency` (web/package.json, pnpm-lock.yaml)
+- `a9adc8c` `feat(web): mobile nav routing with contributions page` (stoa-app/header/composer,
+  +stoa-contributions, −stoa-rail)
 
-- `thinkingFormat` → `"openai"`: the openai-completions build path (the only path Venice
-  speaks) no longer takes the hardcoded `qwen-chat-template` branch, so
-  `chat_template_kwargs` is never constructed.
-- `chatTemplateKwargs` line **dropped entirely**: under `"openai"` the flag would be
-  meaningless at best; dropping it guarantees the rejected key can never appear in any
-  request payload, whatever pi-ai does with compat flags.
-- `requiresReasoningContentOnAssistantMessages` **kept** — unrelated to the rejected key;
-  not part of the probe failure.
-- **Declared thinking intent:** the old config wanted `enable_thinking: true`, but that
-  flag was provably inert under `qwen-chat-template` (the branch is never taken). Under
-  `"openai"`, thinking is expressed through pi-ai's reasoning-effort path: the model keeps
-  `reasoning: true` and the existing `thinkingLevelMap` (minimal…max → low/medium/high)
-  unchanged. Per the acceptance contract, a **working reply is the priority**; whether
-  Venice surfaces thinking content for `deepseek-v4-flash-0731` is orthogonal to this 400
-  and left at the model default. No new feature was added.
+## Gates (all green, verified on the committed tree)
 
-## Acceptance gates
+| Gate | Result |
+|---|---|
+| `pnpm -C web run build` (esbuild → `web/dist/app.js`) | ✅ exit 0, `Built: …/web/dist/app.js` |
+| server typecheck `pnpm -C server run typecheck` (`tsc --noEmit`) | ✅ 0 errors, exit 0 |
+| server build `pnpm -C server run build` (`tsc`) | ✅ 0 errors, exit 0 |
+| `cd server && npm test` (smoke) | ✅ **12 passed, 0 failed** |
+| `docker compose config` | ✅ valid |
+| secrets grep over the diff (`api_key|secret|password|token|bearer|sk-…`) | ✅ none |
 
-| # | Gate | Exact command | Result |
-|---|------|---------------|--------|
-| 1 | Server typecheck 0 errors | `pnpm -C server run typecheck` | ✅ exit 0, 0 errors (fresh worktree needs `pnpm -C shared run build` first — no `shared/dist`; artifacts are gitignored) |
-| 2 | Server smoke | `pnpm -C server run smoke` | ✅ **12 passed, 0 failed** |
-| 3 | E2E proof (money gate) | ws client → `ws://localhost:8080/ws`, join `main`, submit `{t:'submit', content:'hello', requestId:'t1'}` | ✅ before/after snapshot + `[res-hook] assistantLen>0`, see below |
-| 4 | Repo hygiene | `git status` / `git diff` | ✅ only `server/src/server.ts` + `REPORT.md` changed; no keys in diff; no stray files |
+`web/dist/` is gitignored (build artifact — gate only, not committed), matching repo convention.
 
-### Gate 1–2 detail
+## Verification proof (the critical part) — TERMINATES
 
-```
-$ pnpm -C shared run build && pnpm -C server run build && pnpm -C server run typecheck
-$ tsc --noEmit            # 0 errors
+**Why the previous session wedged:** its probe opened a LIVE WebSocket to a local server and the
+node script never exited, so the bash step never returned. This probe avoids that entirely and is
+structurally guaranteed to terminate:
 
-$ pnpm -C server run smoke
-Results: 12 passed, 0 failed
-```
-(Smoke caveats — no `VENICE_INFERENCE_KEY`, so no live model answer — are the pre-existing
-expected behavior of the smoke test itself.)
+- **No live WebSocket.** `window.WebSocket` is replaced by a counting stub
+  (`class FakeWebSocket { constructor(){ instances.push(this); } }`). No socket is ever opened, no
+  server is contacted, and the app's `onclose → setTimeout(reconnect, 2000)` path can never fire
+  because `onclose` is never invoked.
+- **Explicit `process.exit(0)`** at the end kills every lingering timer (`setInterval` interrupt
+  poll, navigo's 1ms hash freeze timer) and any socket.
+- **Measured runtime ~1s per probe; exit code 0; `ps` confirms no stray node processes.**
 
-### Gate 3 — E2E proof (fixed code + diagnostic instrumentation)
+### Probe 1 — `probe.mjs` (23/23 PASS)
+jsdom (`url: http://localhost/`, `pretendToBeVisual`, custom-element capable) + the stub above.
+Mounts `<stoa-app>`, then drives the real user flow (real `button.click()` through shadow roots):
+- (a) `/` renders room view: `_route === "/"`, **no `<stoa-rail>`** in app, `<stoa-header>`,
+  `<stoa-transcript>`, `<stoa-composer>` present; exactly **1** WebSocket after mount.
+- injects a `{t:"view"}` snapshot over the stubbed socket → `_entries.length === 2`; calls
+  `ws.onopen()` → join sent once.
+- (b) click header **Contributions** button → `_route === "/contributions"`,
+  `<stoa-contributions>` rendered, room view unmounted, `location.hash === "#/contributions"`,
+  still **1** WebSocket, entries still 2.
+- (c) click **Back to Room** → `_route === "/"`, room view restored, `hash === "#/"`, still **1**
+  WebSocket, entries still 2. Then navigate away again and `history.back()` (popstate) → room view
+  restored, still **1** WebSocket, entries still 2.
+- `WebSocket constructor invocations: 1` across the entire run.
 
-The acceptance requires the `[res-hook]` log line. That instrumentation lives on the
-diagnostic branch (`add-server-logs-docker2`, the stack the investigation used), which
-still carried the **buggy** compat. To prove the fix through exactly that seam without
-touching any worktree, the diagnostic branch was copied to an isolated scratch dir
-(`/tmp/stoa-e2e`), the **identical one-line fix** applied (compat block verified
-byte-identical to the shipped commit), the poisoned room reset
-(`docker compose down -v`), and the stack rebuilt (`docker compose up -d --build`) with
-the real `VENICE_INFERENCE_KEY` (via the branch's `env_file: server/.env`).
+### Probe 2 — `probe-deeplink.mjs` (4/4 PASS)
+Fresh jsdom at `url: http://localhost/#/contributions` (direct deep link): `_route ===
+"/contributions"` on first render, `<stoa-contributions>` rendered, no room view, **1** WebSocket.
 
-**BEFORE** — view snapshot after join (room clean after `down -v`):
-```json
-{ "entriesCount": 0, "entries": [], "live": { "generation": null, "tools": [] }, "inbox": [] }
-```
+Both scripts end with `process.exit(0)`; both returned exit 0 in ~1 second (verified with
+`timeout 30`, never hung) and left no background processes.
 
-**AFTER** — view snapshot after submitting `{t:'submit', content:'hello', requestId:'t1'}`:
-```json
-{
-  "entriesCount": 3,
-  "entries": [
-    { "id": "7",  "kind": "pi.user",      "role": "user",      "content": "hello",                            "contentLen": 5 },
-    { "id": "10", "kind": "pi.system",     "role": "system",     "content": "",                                "contentLen": 0 },
-    { "id": "11", "kind": "pi.assistant",  "role": "assistant",  "content": "Hello! How can I help you today?", "contentLen": 32 }
-  ],
-  "live": { "generation": null, "tools": [] },
-  "inbox": []
-}
-```
-`RESULT: PASS — non-empty assistant reply` · commits=3 deltas=1 **errors=0**
+Probe scripts live at `/tmp/stoa-probe/{probe,probe-deeplink}.mjs` (kept outside the worktree so the
+repo stays clean).
 
-**Container logs** — the money line (and no 400 anywhere):
-```
-[2026-10-02T18:35:30.382Z] [msg] conn=c1 t=submit textLen=5 field=content
-[2026-10-02T18:35:30.382Z] [req] conn=c1 corr=tmurazqha-1 submit contentLen=5 msgs=0
-[2026-10-02T18:35:32.052Z] [res-hook] assistantLen=32 empty=false stopReason=stop
-[2026-10-02T18:35:32.058Z] [res] conn=c1 corr=tmurazqha-1 assistantLen=32 empty=false stopReason=stop
-```
-`[res-hook] assistantLen=32 empty=false` — **not** `empty=true`. Venice accepted the
-request (no `chat_template_kwargs` → no 400 → real HTTP 200 answer), and pi-durable
-persisted a non-empty `pi.assistant` entry.
+---
 
-## Diff
+## Addendum — merge with main (colors), 2026-10-05
 
-- `server/src/server.ts` — compat block: `thinkingFormat: "qwen-chat-template"` →
-  `"openai"`; `chatTemplateKwargs` line removed. Nothing else changed.
+PR #10 went CONFLICTING after main moved on (`0f0a375` "colors" landed on `f8d4e86` via PR #8).
+Merged `origin/main` into `mobile-nav` and resolved all conflicts; PR #10 is now **MERGEABLE
+(mergeStateStatus CLEAN)** at `b01309f` (merge commit, parents `e7522b8` + `e5b20e4`).
+
+- `web/src/stoa-rail.ts` — **deletion kept** (modify/delete conflict). Rail is gone; contributions
+  live on the `/#/contributions` page. main's colors edits to the rail were obsolete and dropped.
+- `web/src/stoa-app.ts` — kept PR #10's routing refactor (navigo hash router, `_route`, single
+  WS/state, `<stoa-header @stoa-nav-contributions>`); applied colors' `title="Research Room"`.
+- `web/src/stoa-header.ts` — kept mobile-nav's compact `:host` spacing (`gap:12px; padding:10px 16px`)
+  and merged colors' `background: var(--surface, #fff)` + `border-bottom: 1px solid var(--border, #111)`;
+  colors' `title = "Research Room"` and `#status.connected color: #111` were already present on mobile-nav.
+- Auto-merged `web/index.html`, `web/src/stoa-message.ts`, `web/src/stoa-transcript.ts` — byte-identical
+  to `origin/main` (all colors changes preserved: light theme vars, `Research Room` title, bubble borders).
+- `.stoa/registry.json` — auto-merged, untouched. `REPORT.md` conflict (main's PR #8 report vs ours)
+  resolved to the mobile-nav report + this addendum.
+- Uncommitted `REPORT.md` from the previous session was committed first (`e7522b8`) to keep the merge clean.
+
+### Gates re-run at resolved head `b01309f` (all green)
+
+| Gate | Result |
+|---|---|
+| `pnpm -C web run build` | ✅ `Built: …/web/dist/app.js` |
+| `pnpm -C server run typecheck` (`tsc --noEmit`) | ✅ 0 errors |
+| `pnpm -C server run build` (`tsc`) | ✅ 0 errors |
+| `cd server && npm test` | ✅ **12 passed, 0 failed** |
+| `docker compose config` | ✅ valid (placeholder `server/.env` from example, removed after) |
+| secrets grep over merge diff | ✅ none |
+| `/tmp/stoa-probe/probe.mjs` | ✅ 23/23 PASS, exit 0, ~1s |
+| `/tmp/stoa-probe/probe-deeplink.mjs` | ✅ 4/4 PASS, exit 0, ~1s |

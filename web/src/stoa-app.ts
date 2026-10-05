@@ -1,5 +1,6 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
+import Navigo from "navigo";
 
 // Consume the shared protocol module by package name — esbuild aliases
 // @stoa/shared → shared/src and bundles the raw TypeScript source into app.js.
@@ -17,9 +18,9 @@ import {
 } from "@stoa/shared";
 
 import "./stoa-header.js";
-import "./stoa-rail.js";
 import "./stoa-transcript.js";
 import "./stoa-composer.js";
+import "./stoa-contributions.js";
 
 interface Entry {
   id: string;
@@ -38,27 +39,30 @@ export class StoaApp extends LitElement {
     new Map();
   @state() private _toolsVersion = 0;
 
+  // Current routed view. navigo (hash mode) is owned here — the router root —
+  // and route changes only swap which view renders below. The single WS
+  // connection and ALL streaming state live in this component, so navigating
+  // never re-opens the socket, drops entries, or loses the live answer.
+  @state() private _route: string = "/";
+
   private _ws: WebSocket | null = null;
+  private _router: Navigo | null = null;
   private _interruptCheckInterval: ReturnType<typeof setInterval> | null = null;
 
   static styles = css`
     :host {
       display: flex;
+      flex-direction: column;
       height: 100vh;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
         sans-serif;
-    }
-    #main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
     }
   `;
 
   connectedCallback() {
     super.connectedCallback();
     this._connect();
+    this._initRouter();
     // Poll for interrupt button state (enabled while liveGeneration is active)
     this._interruptCheckInterval = setInterval(() => {
       this.requestUpdate();
@@ -71,10 +75,50 @@ export class StoaApp extends LitElement {
       clearInterval(this._interruptCheckInterval);
       this._interruptCheckInterval = null;
     }
+    if (this._router) {
+      this._router.destroy();
+      this._router = null;
+    }
     if (this._ws) {
       this._ws.close();
       this._ws = null;
     }
+  }
+
+  // ── Router (navigo, hash mode)
+  //
+  // Hash-based routing (useHash) so /#/ and /#/contributions deep-link on
+  // static hosting with zero server rewrites. navigo's constructor for v8 is
+  // new Navigo(root, { hash: true }) — the v8 spelling of v7's useHash flag.
+  //
+  // The router only updates this._route; rendering is a plain conditional
+  // below. Because the WebSocket + state live here (never torn down), both
+  // in-app navigation and browser back/forward (popstate → resolve) preserve
+  // the single connection and streaming state.
+  private _initRouter() {
+    const router = new Navigo("/", { hash: true });
+    router.on({
+      "/": () => {
+        this._route = "/";
+        this.requestUpdate();
+      },
+      "/contributions": () => {
+        this._route = "/contributions";
+        this.requestUpdate();
+      },
+    });
+    // Resolve the current URL once — handles direct load of /#/contributions.
+    router.resolve();
+    this._router = router;
+  }
+
+  // ── Navigation handlers (child events → router)
+  private _onNavContributions() {
+    this._router?.navigate("/contributions");
+  }
+
+  private _onBack() {
+    this._router?.navigate("/");
   }
 
   // ── WebSocket
@@ -204,25 +248,32 @@ export class StoaApp extends LitElement {
   }
 
   render() {
+    // Route changes only swap which view renders — the socket and state above
+    // are untouched, so / → /contributions → / preserves entries, live tools,
+    // and the streaming answer. /contributions re-mounts <stoa-transcript>
+    // fresh on the way back, re-fed from this._entries/_liveGeneration.
+    if (this._route === "/contributions") {
+      return html`
+        <stoa-contributions @stoa-back=${this._onBack}></stoa-contributions>
+      `;
+    }
     return html`
-      <stoa-rail></stoa-rail>
-      <div id="main">
-        <stoa-header
-          title="Research Room"
-          .connected=${this._connected}
-        ></stoa-header>
-        <stoa-transcript
-          .entries=${this._entries}
-          .liveGeneration=${this._liveGeneration}
-          .liveTools=${this._liveTools}
-          ._toolsVersion=${this._toolsVersion}
-        ></stoa-transcript>
-        <stoa-composer
-          ?interrupt-enabled=${!!this._liveGeneration}
-          @stoa-submit=${this._onSubmit}
-          @stoa-interrupt=${this._onInterrupt}
-        ></stoa-composer>
-      </div>
+      <stoa-header
+        title="Research Room"
+        .connected=${this._connected}
+        @stoa-nav-contributions=${this._onNavContributions}
+      ></stoa-header>
+      <stoa-transcript
+        .entries=${this._entries}
+        .liveGeneration=${this._liveGeneration}
+        .liveTools=${this._liveTools}
+        ._toolsVersion=${this._toolsVersion}
+      ></stoa-transcript>
+      <stoa-composer
+        ?interrupt-enabled=${!!this._liveGeneration}
+        @stoa-submit=${this._onSubmit}
+        @stoa-interrupt=${this._onInterrupt}
+      ></stoa-composer>
     `;
   }
 }
