@@ -19,6 +19,7 @@ export class StoaHeader extends LitElement {
     h2 {
       font-size: 16px;
       margin: 0;
+      font-family: var(--font-serif, Georgia, "Times New Roman", serif);
     }
     #actions {
       display: flex;

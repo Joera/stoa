@@ -40,7 +40,8 @@ export class StoaMessage extends LitElement {
       margin: 0 auto;
       background: var(--border, #fff);
       font-size: 12px;
-      font-family: monospace;
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo,
+        Consolas, monospace);
     }
     .sources {
       margin-top: 6px;
@@ -54,6 +55,8 @@ export class StoaMessage extends LitElement {
       border-radius: 10px;
       background: var(--accent2, #533483);
       color: #fff;
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo,
+        Consolas, monospace);
     }
   `;
 

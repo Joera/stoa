@@ -54,8 +54,8 @@ export class StoaApp extends LitElement {
       display: flex;
       flex-direction: column;
       height: 100vh;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-        sans-serif;
+      font-family: var(--font-sans, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", Roboto, sans-serif);
     }
   `;
 

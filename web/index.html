@@ -17,12 +17,74 @@
     --border: #2a2a4a;
     --user-bubble: #fff;
     --assistant-bubble: #fff;
+
+    /* Font families (Geist Mono / Instrument Serif / Inter Tight — SIL OFL, see web/fonts/*/OFL.txt) */
+    --font-sans: "Inter Tight", -apple-system, BlinkMacSystemFont, "Segoe UI",
+      Roboto, sans-serif;
+    --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+    --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+      monospace;
   }
+
+  /* Inter Tight — UI sans (variable wght, regular + italic) */
+  @font-face {
+    font-family: "Inter Tight";
+    src: url("/fonts/Inter_Tight/InterTight-VariableFont_wght.ttf")
+      format("truetype");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Inter Tight";
+    src: url("/fonts/Inter_Tight/InterTight-Italic-VariableFont_wght.ttf")
+      format("truetype");
+    font-weight: 100 900;
+    font-style: italic;
+    font-display: swap;
+  }
+
+  /* Instrument Serif — branding/serif headings (static Regular + Italic) */
+  @font-face {
+    font-family: "Instrument Serif";
+    src: url("/fonts/Instrument_Serif/InstrumentSerif-Regular.ttf")
+      format("truetype");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Instrument Serif";
+    src: url("/fonts/Instrument_Serif/InstrumentSerif-Italic.ttf")
+      format("truetype");
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+  }
+
+  /* Geist Mono — mono (variable wght, regular + italic) */
+  @font-face {
+    font-family: "Geist Mono";
+    src: url("/fonts/Geist_Mono/GeistMono-VariableFont_wght.ttf")
+      format("truetype");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Geist Mono";
+    src: url("/fonts/Geist_Mono/GeistMono-Italic-VariableFont_wght.ttf")
+      format("truetype");
+    font-weight: 100 900;
+    font-style: italic;
+    font-display: swap;
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: var(--font-sans);
   }
 </style>
 </head>

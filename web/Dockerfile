@@ -32,6 +32,8 @@ COPY --from=builder /build/web/dist/ /usr/share/nginx/html/dist/
 COPY web/index.html /usr/share/nginx/html/index.html
 # Config file
 COPY web/config.js /usr/share/nginx/html/config.js
+# Fonts (SIL OFL — Geist Mono, Instrument Serif, Inter Tight; licenses at /fonts/*/OFL.txt)
+COPY web/fonts/ /usr/share/nginx/html/fonts/
 # Nginx config
 COPY web/nginx.conf /etc/nginx/conf.d/default.conf
 
