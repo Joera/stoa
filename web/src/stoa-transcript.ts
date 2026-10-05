@@ -46,7 +46,8 @@ export class StoaTranscript extends LitElement {
       max-width: 80%;
       background: var(--border, #2a2a4a);
       font-size: 12px;
-      font-family: monospace;
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo,
+        Consolas, monospace);
       padding: 8px 12px;
       border-radius: 8px;
       white-space: pre-wrap;

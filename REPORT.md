@@ -1,119 +1,141 @@
-# Mobile Nav Routing with Contributions Page — Handoff/Finish Report
+# Web Fonts — Geist Mono, Instrument Serif, Inter Tight — Handoff Report
 
-**Branch:** `mobile-nav` (off `main` @ `f8d4e86`)
-**PR:** https://github.com/Joera/stoa/pull/10 — "feat(web): mobile nav routing with contributions page"
+**Branch:** `web-fonts` (off `origin/main` @ `fba8328` = merged PR #10; main already includes the user's `colors` commit and PR #8 logging)
+**PR:** "feat(web): add Geist Mono, Instrument Serif, Inter Tight fonts"
 **Date:** 2026-10-05
-**Scope:** `web/` ONLY — `server/` and `shared/` untouched (verified: no diffs outside `web/`, `pnpm-lock.yaml`).
+**Scope:** `web/` ONLY — `server/` and `shared/` untouched (no diffs outside `web/`).
 
-This session took over an existing worktree whose implementation edits were intact but whose
-verification probe had wedged the previous session (the probe opened a LIVE WebSocket to a local
-server and never exited). No code was reverted or rewritten from the in-progress approach; the
-edits were inspected, kept as-is, and taken to a green, reviewed, PR'd state with a terminating probe.
+Three SIL OFL-licensed families added to the Stoa web app: **Geist Mono** (mono),
+**Instrument Serif** (branding/serif headings), **Inter Tight** (UI sans). All three
+ship an `OFL.txt` kept verbatim in the worktree for license compliance.
 
-## Contract compliance
+## Font usage map (which family applied where)
 
-1. **navigo hash routing** — `<stoa-app>` owns `new Navigo("/", { hash: true })` (navigo v8 spelling
-   of v7's `useHash`). Routes: `/` and `/contributions`; only `_route` is updated, rendering is a
-   plain conditional below the router.
-2. **`/#/` = room view, single-column, no rail** — `web/src/stoa-rail.ts` deleted; header +
-   transcript + composer render directly (column flex host). No `<stoa-rail>` anywhere.
-3. **`/#/contributions` = separate contributions page** — new `web/src/stoa-contributions.ts` with
-   the same static contribution cards that used to live in the rail, plus a Back-to-Room link that
-   dispatches `stoa-back` → `router.navigate("/")`.
-4. **Single WS + single app state that survives route changes** — the WebSocket, `_entries`,
-   `_liveGeneration`, `_liveTools` all live on `<stoa-app>` and are never torn down by routing;
-   `connectedCallback` calls `_connect()` exactly once. Route flips (button clicks and browser
-   back/forward) only re-render, so no second socket opens and no state is lost.
-5. **web/ only** — no `server/` or `shared/` source changes.
+| Family | Role | Where applied |
+|---|---|---|
+| **Inter Tight** | UI sans (body/default text) | `:root --font-sans`; `body { font-family: var(--font-sans) }` in `web/index.html`; `stoa-app` `:host` (inherits to header/transcript/composer/message tree) |
+| **Instrument Serif** | Branding / serif headings | `stoa-header` `h2` ("Research Room" title); `stoa-contributions` `header h2` ("Contributions" page header) |
+| **Geist Mono** | Monospace content | `stoa-message` `.msg.tool` (tool-call bubbles); `stoa-message` `.source-chip` (contribution chips); `stoa-transcript` `.tool-progress` (live tool-call progress lines) |
 
-## Commits
+Note: there is no `requestId`/`request_id` anywhere in `web/src/` (grepped) — the only
+pre-existing monospace surfaces were `.msg.tool` and `.tool-progress`, which now use
+`var(--font-mono)`. `.source-chip` was not previously mono; it is now set to
+`--font-mono` since the chips render contribution ids (code-like) — a font-family-only
+change, no layout/design changes.
 
-- `616775e` `chore(web): add navigo@8 hash router dependency` (web/package.json, pnpm-lock.yaml)
-- `a9adc8c` `feat(web): mobile nav routing with contributions page` (stoa-app/header/composer,
-  +stoa-contributions, −stoa-rail)
+All component usages reference the `:root` tokens with a local fallback stack (e.g.
+`var(--font-sans, -apple-system, …)`), so nothing breaks if the tokens are absent, and
+the user's `colors`-commit color tokens in `:root` are untouched (font tokens were only
+*added* below them).
+
+## File layout (web/fonts/, one subdir per family, licenses kept)
+
+```
+web/fonts/
+├── Geist_Mono/
+│   ├── GeistMono-VariableFont_wght.ttf
+│   ├── GeistMono-Italic-VariableFont_wght.ttf
+│   └── OFL.txt                          # SIL OFL 1.1 (Geist Project Authors, 2024)
+├── Instrument_Serif/
+│   ├── InstrumentSerif-Regular.ttf      # static — no variable build in this family
+│   ├── InstrumentSerif-Italic.ttf
+│   └── OFL.txt                          # SIL OFL 1.1 (Instrument Serif Project Authors, 2022)
+└── Inter_Tight/
+    ├── InterTight-VariableFont_wght.ttf
+    ├── InterTight-Italic-VariableFont_wght.ttf
+    └── OFL.txt                          # SIL OFL 1.1 (Inter Project Authors, 2022)
+```
+
+Pruned: the 16 static `Geist_Mono/static/*.ttf` and 16 static `Inter_Tight/static/*.ttf`
+files were dropped (variable fonts cover the weights; `font-weight: 100 900` range on the
+`@font-face`). `README.txt` files from the zip were also dropped — only the listed fonts +
+`OFL.txt` are committed per spec. `Instrument_Serif` has no variable build, so its two
+statics are kept. Extracted with `python3 -m zipfile` (no `unzip` on host), pruned, and
+copied into the worktree. Total ~1.7 MB.
+
+## Wiring
+
+### web/index.html
+- Six `@font-face` blocks (variable `font-weight: 100 900` for Inter Tight + Geist Mono;
+  static `400` for Instrument Serif), all `font-display: swap`, referenced by absolute
+  `/fonts/...` URLs (same convention as `/config.js` and `/dist/app.js`).
+- `:root` font tokens added (color tokens untouched):
+  `--font-sans` (Inter Tight → system sans fallback), `--font-serif` (Instrument Serif →
+  Georgia/…/serif), `--font-mono` (Geist Mono → ui-monospace/…/monospace).
+- `body` now uses `font-family: var(--font-sans)`.
+
+### web/scripts/serve.mjs (local dev)
+- Added `".ttf": "font/ttf"` to the MIME map. The server already serves anything under
+  `web/`, so `web/fonts/` is reachable at `/fonts/...` — verified with `curl -I`.
+
+### web/Dockerfile (nginx image)
+- Stage 2 now also `COPY web/fonts/ /usr/share/nginx/html/fonts/` (right after the
+  config.js copy), so the fonts + their `OFL.txt` land under nginx's docroot.
+- `web/nginx.conf` required **no change**: its only locations are `/dist/` and `/`, and the
+  `/` `try_files $uri $uri/ /index.html` already serves static files under `/fonts/`.
 
 ## Gates (all green, verified on the committed tree)
 
 | Gate | Result |
 |---|---|
 | `pnpm -C web run build` (esbuild → `web/dist/app.js`) | ✅ exit 0, `Built: …/web/dist/app.js` |
-| server typecheck `pnpm -C server run typecheck` (`tsc --noEmit`) | ✅ 0 errors, exit 0 |
-| server build `pnpm -C server run build` (`tsc`) | ✅ 0 errors, exit 0 |
-| `cd server && npm test` (smoke) | ✅ **12 passed, 0 failed** |
-| `docker compose config` | ✅ valid |
-| secrets grep over the diff (`api_key|secret|password|token|bearer|sk-…`) | ✅ none |
+| server typecheck `pnpm run typecheck` (`tsc --noEmit`) | ✅ 0 errors, exit 0 |
+| server build `pnpm run build` (`tsc`) | ✅ 0 errors, exit 0 |
+| server `npm test` (smoke suite) | ✅ 12 passed, 0 failed |
+| `docker compose config` | ✅ valid, exit 0 |
 
-`web/dist/` is gitignored (build artifact — gate only, not committed), matching repo convention.
+Server gates required `@stoa/shared` built first (its `dist/` is gitignored and not
+committed): `pnpm -C shared run build` was run in the worktree — a build artifact only, no
+tracked-file changes.
 
-## Verification proof (the critical part) — TERMINATES
+The compose gate: the worktree has no `server/.env` (gitignored, so absent from a fresh
+git worktree). Per instructions the check was run against the worktree's **actual**
+`docker-compose.yml` (the `env_file: server/.env` variant at `origin/main`, which differs
+from the stale `environment:` variant still checked out at `~/stoa` HEAD `0f0a375`) by
+temporarily copying the gitignored `server/.env` from `~/stoa`, running `docker compose
+config` (exit 0), then removing the temp `.env` (it never entered the diff). Note: `~/stoa`
+main checkout is behind `origin/main` and was not otherwise touched.
 
-**Why the previous session wedged:** its probe opened a LIVE WebSocket to a local server and the
-node script never exited, so the bash step never returned. This probe avoids that entirely and is
-structurally guaranteed to terminate:
+## Verification output
 
-- **No live WebSocket.** `window.WebSocket` is replaced by a counting stub
-  (`class FakeWebSocket { constructor(){ instances.push(this); } }`). No socket is ever opened, no
-  server is contacted, and the app's `onclose → setTimeout(reconnect, 2000)` path can never fire
-  because `onclose` is never invoked.
-- **Explicit `process.exit(0)`** at the end kills every lingering timer (`setInterval` interrupt
-  poll, navigo's 1ms hash freeze timer) and any socket.
-- **Measured runtime ~1s per probe; exit code 0; `ps` confirms no stray node processes.**
+After `pnpm -C web run build`, with `node web/scripts/serve.mjs 8099`:
 
-### Probe 1 — `probe.mjs` (23/23 PASS)
-jsdom (`url: http://localhost/`, `pretendToBeVisual`, custom-element capable) + the stub above.
-Mounts `<stoa-app>`, then drives the real user flow (real `button.click()` through shadow roots):
-- (a) `/` renders room view: `_route === "/"`, **no `<stoa-rail>`** in app, `<stoa-header>`,
-  `<stoa-transcript>`, `<stoa-composer>` present; exactly **1** WebSocket after mount.
-- injects a `{t:"view"}` snapshot over the stubbed socket → `_entries.length === 2`; calls
-  `ws.onopen()` → join sent once.
-- (b) click header **Contributions** button → `_route === "/contributions"`,
-  `<stoa-contributions>` rendered, room view unmounted, `location.hash === "#/contributions"`,
-  still **1** WebSocket, entries still 2.
-- (c) click **Back to Room** → `_route === "/"`, room view restored, `hash === "#/"`, still **1**
-  WebSocket, entries still 2. Then navigate away again and `history.back()` (popstate) → room view
-  restored, still **1** WebSocket, entries still 2.
-- `WebSocket constructor invocations: 1` across the entire run.
+```
+$ curl -sI http://127.0.0.1:8099/fonts/Geist_Mono/GeistMono-VariableFont_wght.ttf
+HTTP/1.1 200 OK
+Content-Type: font/ttf
 
-### Probe 2 — `probe-deeplink.mjs` (4/4 PASS)
-Fresh jsdom at `url: http://localhost/#/contributions` (direct deep link): `_route ===
-"/contributions"` on first render, `<stoa-contributions>` rendered, no room view, **1** WebSocket.
+$ curl -sI http://127.0.0.1:8099/fonts/Inter_Tight/InterTight-Italic-VariableFont_wght.ttf
+HTTP/1.1 200 OK
+Content-Type: font/ttf
 
-Both scripts end with `process.exit(0)`; both returned exit 0 in ~1 second (verified with
-`timeout 30`, never hung) and left no background processes.
+$ curl -sI http://127.0.0.1:8099/fonts/Instrument_Serif/InstrumentSerif-Regular.ttf
+HTTP/1.1 200 OK
+Content-Type: font/ttf
 
-Probe scripts live at `/tmp/stoa-probe/{probe,probe-deeplink}.mjs` (kept outside the worktree so the
-repo stays clean).
+$ curl -s http://127.0.0.1:8099/fonts/Geist_Mono/GeistMono-VariableFont_wght.ttf | wc -c
+173204                       # matches the committed file size
 
----
+$ curl -s http://127.0.0.1:8099/ | grep -c "@font-face"
+6                            # all six @font-face blocks served
 
-## Addendum — merge with main (colors), 2026-10-05
+$ curl -s http://127.0.0.1:8099/ | grep -E -- "--font-sans|--font-serif|--font-mono"
+    --font-sans: "Inter Tight", ...
+    --font-serif: "Instrument Serif", ...;
+    --font-mono: "Geist Mono", ...;
+    font-family: var(--font-sans);
+```
 
-PR #10 went CONFLICTING after main moved on (`0f0a375` "colors" landed on `f8d4e86` via PR #8).
-Merged `origin/main` into `mobile-nav` and resolved all conflicts; PR #10 is now **MERGEABLE
-(mergeStateStatus CLEAN)** at `b01309f` (merge commit, parents `e7522b8` + `e5b20e4`).
+- (a) served `index.html` contains the `@font-face` blocks (6) and the new font tokens ✅
+- (b) font files exist under `web/fonts/` in the worktree (tree above) ✅
+- (c) dev server serves fonts with `Content-Type: font/ttf` ✅ — then killed cleanly.
 
-- `web/src/stoa-rail.ts` — **deletion kept** (modify/delete conflict). Rail is gone; contributions
-  live on the `/#/contributions` page. main's colors edits to the rail were obsolete and dropped.
-- `web/src/stoa-app.ts` — kept PR #10's routing refactor (navigo hash router, `_route`, single
-  WS/state, `<stoa-header @stoa-nav-contributions>`); applied colors' `title="Research Room"`.
-- `web/src/stoa-header.ts` — kept mobile-nav's compact `:host` spacing (`gap:12px; padding:10px 16px`)
-  and merged colors' `background: var(--surface, #fff)` + `border-bottom: 1px solid var(--border, #111)`;
-  colors' `title = "Research Room"` and `#status.connected color: #111` were already present on mobile-nav.
-- Auto-merged `web/index.html`, `web/src/stoa-message.ts`, `web/src/stoa-transcript.ts` — byte-identical
-  to `origin/main` (all colors changes preserved: light theme vars, `Research Room` title, bubble borders).
-- `.stoa/registry.json` — auto-merged, untouched. `REPORT.md` conflict (main's PR #8 report vs ours)
-  resolved to the mobile-nav report + this addendum.
-- Uncommitted `REPORT.md` from the previous session was committed first (`e7522b8`) to keep the merge clean.
+Cleanup: the dev server was killed and its child node process on port 8099 terminated; no
+stray processes from this session remain. (A pre-existing node listener on port 18099 —
+not started by this session — was left untouched.)
 
-### Gates re-run at resolved head `b01309f` (all green)
+## Hygiene
 
-| Gate | Result |
-|---|---|
-| `pnpm -C web run build` | ✅ `Built: …/web/dist/app.js` |
-| `pnpm -C server run typecheck` (`tsc --noEmit`) | ✅ 0 errors |
-| `pnpm -C server run build` (`tsc`) | ✅ 0 errors |
-| `cd server && npm test` | ✅ **12 passed, 0 failed** |
-| `docker compose config` | ✅ valid (placeholder `server/.env` from example, removed after) |
-| secrets grep over merge diff | ✅ none |
-| `/tmp/stoa-probe/probe.mjs` | ✅ 23/23 PASS, exit 0, ~1s |
-| `/tmp/stoa-probe/probe-deeplink.mjs` | ✅ 4/4 PASS, exit 0, ~1s |
+- No diffs outside `web/`.
+- `:root` color tokens from the user's `colors` commit are unchanged (only font tokens added).
+- No secrets in the diff (grep for key/token/secret/password clean); no conflict markers.
