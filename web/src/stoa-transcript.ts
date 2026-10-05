@@ -44,7 +44,7 @@ export class StoaTranscript extends LitElement {
     .tool-progress {
       margin: 0 auto;
       max-width: 80%;
-      background: var(--border, #2a2a4a);
+      background: var(--border, #ddddd5);
       font-size: 12px;
       font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo,
         Consolas, monospace);

@@ -32,13 +32,13 @@ export class StoaMessage extends LitElement {
     .msg.system {
       margin: 0 auto;
       background: none;
-      color: var(--dim, #fff);
+      color: var(--dim, #8a8a80);
       font-size: 12px;
       font-style: italic;
     }
     .msg.tool {
       margin: 0 auto;
-      background: var(--border, #fff);
+      background: var(--border, #ddddd5);
       font-size: 12px;
       font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo,
         Consolas, monospace);

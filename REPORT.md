@@ -1,141 +1,119 @@
-# Web Fonts — Geist Mono, Instrument Serif, Inter Tight — Handoff Report
+# Mobile Menu + Minimal Header + Warm Theme — Handoff Report
 
-**Branch:** `web-fonts` (off `origin/main` @ `fba8328` = merged PR #10; main already includes the user's `colors` commit and PR #8 logging)
-**PR:** "feat(web): add Geist Mono, Instrument Serif, Inter Tight fonts"
+**Branch:** `mobile-menu` (off `origin/main` @ `7f7dc8d`; main already includes PR #10 mobile nav routing + PR #11 fonts)
+**PR:** "feat(web): mobile menu, minimal header, warm theme"
 **Date:** 2026-10-05
-**Scope:** `web/` ONLY — `server/` and `shared/` untouched (no diffs outside `web/`).
+**Scope:** `web/` ONLY — `server/` and `shared/` untouched (zero diffs outside `web/`).
 
-Three SIL OFL-licensed families added to the Stoa web app: **Geist Mono** (mono),
-**Instrument Serif** (branding/serif headings), **Inter Tight** (UI sans). All three
-ship an `OFL.txt` kept verbatim in the worktree for license compliance.
+Mobile-fit redesign of the Stoa room view: the interrupt button is gone, the
+header is a minimal (large serif title + green dot + hamburger), a menu screen
+opens from the hamburger, and the whole app switches to a light warm theme.
 
-## Font usage map (which family applied where)
+---
 
-| Family | Role | Where applied |
+## Task 1 — Ditch the interrupt button
+
+**`web/src/stoa-composer.ts`** — composer is now just input + Send:
+- Removed `#interrupt-btn` from the render, its `#interrupt-btn` / `#interrupt-btn:disabled` CSS, the `interruptEnabled` + `interrupting` properties, and `_onInterrupt()`.
+- Input keeps `flex: 1` (Send is fixed via `flex-shrink: 0`) and its 16px font-size (prevents iOS auto-zoom).
+
+**`web/src/stoa-app.ts`**:
+- Removed the `?interrupt-enabled` binding and `@stoa-interrupt` listener on `<stoa-composer>`.
+- Removed `_onInterrupt()` and the now-unused `makeInterrupt` import (protocol still exports it — that's shared/, out of scope).
+- Removed `_interruptCheckInterval` entirely: the field, the 500ms `setInterval(() => requestUpdate())` in `connectedCallback`, and its `clearInterval` in `disconnectedCallback`. **This kills a 500ms requestUpdate poll — a real mobile battery win.**
+
+## Task 2 — Light warm theme (`web/index.html` `:root` tokens)
+
+| Token | Before | After |
 |---|---|---|
-| **Inter Tight** | UI sans (body/default text) | `:root --font-sans`; `body { font-family: var(--font-sans) }` in `web/index.html`; `stoa-app` `:host` (inherits to header/transcript/composer/message tree) |
-| **Instrument Serif** | Branding / serif headings | `stoa-header` `h2` ("Research Room" title); `stoa-contributions` `header h2` ("Contributions" page header) |
-| **Geist Mono** | Monospace content | `stoa-message` `.msg.tool` (tool-call bubbles); `stoa-message` `.source-chip` (contribution chips); `stoa-transcript` `.tool-progress` (live tool-call progress lines) |
+| `--bg` | `#fff` | `#fafaf7` |
+| `--surface` | `#eee` | `#f2f2ec` |
+| `--surface2` | `#ddd` | `#e8e8e0` |
+| `--dim` | `#8892a4` | `#8a8a80` |
+| `--border` | `#2a2a4a` (dark navy) | `#ddddd5` |
+| `--text` | `#111` | `#111` (unchanged) |
+| `--accent` | `#e94560` | `#e94560` (unchanged) |
+| `--accent2` | `#533483` | `#533483` (unchanged) |
+| `--green` | `#00b894` | `#00b894` (unchanged — reads fine on `#fafaf7` for a status dot) |
+| `--user-bubble` | `#fff` | `#fff` (unchanged) |
+| `--assistant-bubble` | `#fff` | `#fff` (unchanged) |
 
-Note: there is no `requestId`/`request_id` anywhere in `web/src/` (grepped) — the only
-pre-existing monospace surfaces were `.msg.tool` and `.tool-progress`, which now use
-`var(--font-mono)`. `.source-chip` was not previously mono; it is now set to
-`--font-mono` since the chips render contribution ids (code-like) — a font-family-only
-change, no layout/design changes.
+- The dark navy `#2a2a4a` is **gone from the tokens** (grep-confirmed zero occurrences in `web/`).
+- `@font-face` blocks and `--font-sans/--font-serif/--font-mono` untouched — fonts are exactly as PR #11 shipped them.
+- For coherence, the *fallback* colors baked into component CSS (dead code — tokens are always defined at `:root`) were updated from dark navy to the warm values in `stoa-composer`, `stoa-header`, `stoa-contributions`, `stoa-transcript`, `stoa-message`, so no navy remains anywhere in `web/src/`.
 
-All component usages reference the `:root` tokens with a local fallback stack (e.g.
-`var(--font-sans, -apple-system, …)`), so nothing breaks if the tokens are absent, and
-the user's `colors`-commit color tokens in `:root` are untouched (font tokens were only
-*added* below them).
+## Task 3 — Header redesign (`web/src/stoa-header.ts`)
 
-## File layout (web/fonts/, one subdir per family, licenses kept)
+- `h2`: **32px**, `text-transform: lowercase`, `font-weight: 500`, keeps `font-family: var(--font-serif)`.
+- Connection status is now a **9px green dot** (`var(--green)` when connected; `#c0c0b8` dim gray when disconnected), with `aria-label`/`title` "Connected"/"Disconnected". The text status pill is gone.
+- The 'Contributions' nav-link button is replaced by a **hamburger** (☰, 40×40 tap target, `aria-label="Open menu"`) at the far right, dispatching `stoa-menu-open` (bubbles, composed). `stoa-nav-contributions` is fully removed.
+- The `h2` uses `flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;` so on very narrow screens it ellipsizes (never wraps below ~28px, never pushes a second row); the dot + hamburger never shrink.
 
-```
-web/fonts/
-├── Geist_Mono/
-│   ├── GeistMono-VariableFont_wght.ttf
-│   ├── GeistMono-Italic-VariableFont_wght.ttf
-│   └── OFL.txt                          # SIL OFL 1.1 (Geist Project Authors, 2024)
-├── Instrument_Serif/
-│   ├── InstrumentSerif-Regular.ttf      # static — no variable build in this family
-│   ├── InstrumentSerif-Italic.ttf
-│   └── OFL.txt                          # SIL OFL 1.1 (Instrument Serif Project Authors, 2022)
-└── Inter_Tight/
-    ├── InterTight-VariableFont_wght.ttf
-    ├── InterTight-Italic-VariableFont_wght.ttf
-    └── OFL.txt                          # SIL OFL 1.1 (Inter Project Authors, 2022)
-```
+## Task 4 — Menu screen (new `web/src/stoa-menu.ts`)
 
-Pruned: the 16 static `Geist_Mono/static/*.ttf` and 16 static `Inter_Tight/static/*.ttf`
-files were dropped (variable fonts cover the weights; `font-weight: 100 900` range on the
-`@font-face`). `README.txt` files from the zip were also dropped — only the listed fonts +
-`OFL.txt` are committed per spec. `Instrument_Serif` has no variable build, so its two
-statics are kept. Extracted with `python3 -m zipfile` (no `unzip` on host), pruned, and
-copied into the worktree. Total ~1.7 MB.
+A self-contained `<stoa-menu>` drawer component, rendered by `<stoa-app>` only while open:
 
-## Wiring
+- **State**: `@state() private _menuOpen = false` in `stoa-app.ts`. Header's `stoa-menu-open` toggles it; the menu is conditionally rendered on top of everything (`position: fixed; inset: 0; z-index: 1000`).
+- **Layout**: dimmed full-screen backdrop + right-slide drawer (`width: min(320px, 85vw)`), using theme tokens (`background: var(--bg, #fafaf7)`, `border-left: 1px solid var(--border, #ddddd5)`).
+- **Contents**: room title "Research Room" (serif, 28px lowercase), nav rows **Room** (`/`) and **Contributions** (`/contributions`) — each ≥48px touch target — and the connection state (green dot + "Connected"/"Disconnected" label).
+- **Close paths** (all verified): tapping a nav row → dispatches `stoa-menu-navigate {detail:{route}}` → app navigates + closes; tapping the backdrop → `stoa-menu-close`; pressing **Escape** (window keydown listener added while mounted) → `stoa-menu-close`; the hamburger toggle in the app is `_menuOpen = !_menuOpen` (while open, the overlay covers the button, so that tap lands on the backdrop and closes — equivalent).
+- The contributions page keeps its own `← Back to Room` back-link; no menu there (out of scope).
 
-### web/index.html
-- Six `@font-face` blocks (variable `font-weight: 100 900` for Inter Tight + Geist Mono;
-  static `400` for Instrument Serif), all `font-display: swap`, referenced by absolute
-  `/fonts/...` URLs (same convention as `/config.js` and `/dist/app.js`).
-- `:root` font tokens added (color tokens untouched):
-  `--font-sans` (Inter Tight → system sans fallback), `--font-serif` (Instrument Serif →
-  Georgia/…/serif), `--font-mono` (Geist Mono → ui-monospace/…/monospace).
-- `body` now uses `font-family: var(--font-sans)`.
+## Task 5 — Mobile fit (320px sanity)
 
-### web/scripts/serve.mjs (local dev)
-- Added `".ttf": "font/ttf"` to the MIME map. The server already serves anything under
-  `web/`, so `web/fonts/` is reachable at `/fonts/...` — verified with `curl -I`.
+- **Header @320px**: fixed = padding 32px + actions (dot 9 + gap 12 + hamburger 40 = 61) + host gap 12 = 105px → `h2` gets ~215px. 32px Instrument Serif lowercase "research room" ≈ 195px → fits; the flex + ellipsis guard handles any overflow without wrapping or going below 28px.
+- **Composer @320px**: padding 40px + Send (~76px) + gap 8px → input ~196px with `flex: 1; min-width: 0`. Fits.
 
-### web/Dockerfile (nginx image)
-- Stage 2 now also `COPY web/fonts/ /usr/share/nginx/html/fonts/` (right after the
-  config.js copy), so the fonts + their `OFL.txt` land under nginx's docroot.
-- `web/nginx.conf` required **no change**: its only locations are `/dist/` and `/`, and the
-  `/` `try_files $uri $uri/ /index.html` already serves static files under `/fonts/`.
+---
 
-## Gates (all green, verified on the committed tree)
+## Gates (all pass)
 
 | Gate | Result |
 |---|---|
-| `pnpm -C web run build` (esbuild → `web/dist/app.js`) | ✅ exit 0, `Built: …/web/dist/app.js` |
-| server typecheck `pnpm run typecheck` (`tsc --noEmit`) | ✅ 0 errors, exit 0 |
-| server build `pnpm run build` (`tsc`) | ✅ 0 errors, exit 0 |
-| server `npm test` (smoke suite) | ✅ 12 passed, 0 failed |
-| `docker compose config` | ✅ valid, exit 0 |
+| `pnpm -C web run build` (esbuild → `web/dist/app.js`) | ✅ exit 0 |
+| `cd server && pnpm run typecheck` | ✅ exit 0 (0 errors) |
+| `cd server && pnpm run build` | ✅ exit 0 |
+| `cd server && pnpm test` | ✅ **12 passed, 0 failed** |
+| `docker compose config` | ✅ exit 0 (run read-only from `/home/joera/stoa` main checkout — worktree compose == main's; no `.env` created in the worktree) |
+| No secrets / no conflict markers / no stray processes | ✅ |
 
-Server gates required `@stoa/shared` built first (its `dist/` is gitignored and not
-committed): `pnpm -C shared run build` was run in the worktree — a build artifact only, no
-tracked-file changes.
+Note: server gates required building `@stoa/shared` first (its `dist/` is gitignored, so nothing new is committed).
 
-The compose gate: the worktree has no `server/.env` (gitignored, so absent from a fresh
-git worktree). Per instructions the check was run against the worktree's **actual**
-`docker-compose.yml` (the `env_file: server/.env` variant at `origin/main`, which differs
-from the stale `environment:` variant still checked out at `~/stoa` HEAD `0f0a375`) by
-temporarily copying the gitignored `server/.env` from `~/stoa`, running `docker compose
-config` (exit 0), then removing the temp `.env` (it never entered the diff). Note: `~/stoa`
-main checkout is behind `origin/main` and was not otherwise touched.
+## Verification (proof)
 
-## Verification output
+**Serve + curl** (`node web/scripts/serve.mjs 8099`, then killed — no stray process):
+- (a) `/` (index.html): contains `#fafaf7` (1×), `#ddddd5` (1×), **no** `#2a2a4a` (0).
+- (b) `/dist/app.js`: contains `stoa-menu-open` (2×), `Research Room` (3×), `menu-btn` (3×); **no** `interrupt-btn` (0), **no** `Interrupt` (0), no `#2a2a4a` (0).
 
-After `pnpm -C web run build`, with `node web/scripts/serve.mjs 8099`:
-
+**jsdom DOM check** (`/tmp/stoa-domtest/verify-menu.mjs`, jsdom installed in isolation so no repo dependency changes; stubbed WebSocket → no live WS; `process.exit(0)`):
 ```
-$ curl -sI http://127.0.0.1:8099/fonts/Geist_Mono/GeistMono-VariableFont_wght.ttf
-HTTP/1.1 200 OK
-Content-Type: font/ttf
-
-$ curl -sI http://127.0.0.1:8099/fonts/Inter_Tight/InterTight-Italic-VariableFont_wght.ttf
-HTTP/1.1 200 OK
-Content-Type: font/ttf
-
-$ curl -sI http://127.0.0.1:8099/fonts/Instrument_Serif/InstrumentSerif-Regular.ttf
-HTTP/1.1 200 OK
-Content-Type: font/ttf
-
-$ curl -s http://127.0.0.1:8099/fonts/Geist_Mono/GeistMono-VariableFont_wght.ttf | wc -c
-173204                       # matches the committed file size
-
-$ curl -s http://127.0.0.1:8099/ | grep -c "@font-face"
-6                            # all six @font-face blocks served
-
-$ curl -s http://127.0.0.1:8099/ | grep -E -- "--font-sans|--font-serif|--font-mono"
-    --font-sans: "Inter Tight", ...
-    --font-serif: "Instrument Serif", ...;
-    --font-mono: "Geist Mono", ...;
-    font-family: var(--font-sans);
+14/14 DOM checks passed  (exit 0)
+PASS  stoa-app mounted + room header rendered
+PASS  header title is 'Research Room'
+PASS  hamburger button present  — Open menu
+PASS  status dot present in header
+PASS  no interrupt button in composer
+PASS  composer is just input + Send
+PASS  menu drawer absent initially
+PASS  menu drawer opens on hamburger tap
+PASS  menu has Room + Contributions nav rows  — Room, Contributions
+PASS  menu shows connection state  — (stub WS never opens → 'Disconnected')
+PASS  menu connection dot present + dim when disconnected
+PASS  menu closes on backdrop tap
+PASS  menu closes after nav-item tap
+PASS  menu closes on Escape
 ```
+The check mounts `<stoa-app>` from the built bundle and asserts hamburger + dot + no interrupt button + menu open/close behaviors. jsdom was deliberately kept out of the repo's dependency tree (would have added ~50 transitive deps to the lockfile); the script is trivially rerunnable from `/tmp`.
 
-- (a) served `index.html` contains the `@font-face` blocks (6) and the new font tokens ✅
-- (b) font files exist under `web/fonts/` in the worktree (tree above) ✅
-- (c) dev server serves fonts with `Content-Type: font/ttf` ✅ — then killed cleanly.
+## File change list
 
-Cleanup: the dev server was killed and its child node process on port 8099 terminated; no
-stray processes from this session remain. (A pre-existing node listener on port 18099 —
-not started by this session — was left untouched.)
-
-## Hygiene
-
-- No diffs outside `web/`.
-- `:root` color tokens from the user's `colors` commit are unchanged (only font tokens added).
-- No secrets in the diff (grep for key/token/secret/password clean); no conflict markers.
+| File | Change |
+|---|---|
+| `web/index.html` | warm `:root` tokens (font blocks untouched) |
+| `web/src/stoa-app.ts` | drop interrupt wiring + poll, add `_menuOpen` state + menu handlers/render |
+| `web/src/stoa-composer.ts` | input + Send only |
+| `web/src/stoa-header.ts` | big serif lowercase title, green dot, hamburger |
+| `web/src/stoa-menu.ts` | **new** — menu drawer component |
+| `web/src/stoa-contributions.ts` | warm fallback colors only (back-link kept) |
+| `web/src/stoa-transcript.ts` | warm fallback color only |
+| `web/src/stoa-message.ts` | warm fallback colors only |

@@ -1,6 +1,13 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
+/**
+ * Mobile-minimal room header.
+ *
+ * Just the room title (large lowercase serif) + a connection dot + a hamburger
+ * that opens the menu drawer (stoa-menu). The old text status pill and the
+ * 'Contributions' nav-link are gone — navigation now lives in the menu screen.
+ */
 @customElement("stoa-header")
 export class StoaHeader extends LitElement {
   @property({ type: String }) title = "Research Room";
@@ -13,59 +20,58 @@ export class StoaHeader extends LitElement {
       justify-content: space-between;
       gap: 12px;
       padding: 10px 16px;
-      background: var(--surface, #fff);
-      border-bottom: 1px solid var(--border, #111);
+      background: var(--surface, #f2f2ec);
+      border-bottom: 1px solid var(--border, #ddddd5);
     }
     h2 {
-      font-size: 16px;
+      flex: 1;
+      min-width: 0;
       margin: 0;
       font-family: var(--font-serif, Georgia, "Times New Roman", serif);
+      font-size: 32px;
+      font-weight: 500;
+      text-transform: lowercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     #actions {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
+      flex-shrink: 0;
     }
-    .nav-link {
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #c0c0b8; /* disconnected */
+    }
+    .dot.connected {
+      background: var(--green, #00b894);
+    }
+    #menu-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 40px; /* touch-friendly tap target */
-      padding: 0 14px;
+      width: 40px; /* tap target */
+      height: 40px;
+      border: none;
       border-radius: 8px;
-      border: 1px solid var(--border, #2a2a4a);
-      background: var(--surface2, #0f3460);
-      color: var(--text, #e6e6e6);
-      font-size: 14px;
-      font-weight: 600;
+      background: transparent;
+      color: var(--text, #111);
+      font-size: 22px;
+      line-height: 1;
       cursor: pointer;
-      white-space: nowrap;
     }
-    .nav-link:active {
-      opacity: 0.8;
-    }
-    #status {
-      font-size: 12px;
-      padding: 4px 10px;
-      border-radius: 12px;
-      white-space: nowrap;
-    }
-    #status.connected {
-      background: var(--green, #00b894);
-      color: #111;
-    }
-    #status.disconnected {
-      background: var(--accent, #e94560);
-      color: #fff;
+    #menu-btn:active {
+      opacity: 0.7;
     }
   `;
 
-  private _onContributions() {
+  private _onMenu() {
     this.dispatchEvent(
-      new CustomEvent("stoa-nav-contributions", {
-        bubbles: true,
-        composed: true,
-      })
+      new CustomEvent("stoa-menu-open", { bubbles: true, composed: true })
     );
   }
 
@@ -73,11 +79,13 @@ export class StoaHeader extends LitElement {
     return html`
       <h2>${this.title}</h2>
       <div id="actions">
-        <span id="status" class=${this.connected ? "connected" : "disconnected"}>
-          ${this.connected ? "connected" : "disconnected"}
-        </span>
-        <button class="nav-link" @click=${this._onContributions}>
-          Contributions
+        <span
+          class="dot ${this.connected ? "connected" : ""}"
+          aria-label=${this.connected ? "Connected" : "Disconnected"}
+          title=${this.connected ? "Connected" : "Disconnected"}
+        ></span>
+        <button id="menu-btn" aria-label="Open menu" @click=${this._onMenu}>
+          ☰
         </button>
       </div>
     `;
