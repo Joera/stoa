@@ -208,7 +208,7 @@ export class StoaApp extends LitElement {
       <stoa-rail></stoa-rail>
       <div id="main">
         <stoa-header
-          title="Stoa Room"
+          title="Research Room"
           .connected=${this._connected}
         ></stoa-header>
         <stoa-transcript

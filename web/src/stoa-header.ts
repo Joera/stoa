@@ -3,7 +3,7 @@ import { customElement, property } from "lit/decorators.js";
 
 @customElement("stoa-header")
 export class StoaHeader extends LitElement {
-  @property({ type: String }) title = "Stoa Room";
+  @property({ type: String }) title = "Research Room";
   @property({ type: Boolean }) connected = false;
 
   static styles = css`
@@ -12,8 +12,8 @@ export class StoaHeader extends LitElement {
       align-items: center;
       justify-content: space-between;
       padding: 12px 20px;
-      background: var(--surface, #16213e);
-      border-bottom: 1px solid var(--border, #2a2a4a);
+      background: var(--surface, #fff);
+      border-bottom: 1px solid var(--border, #111);
     }
     h2 {
       font-size: 16px;
@@ -26,7 +26,7 @@ export class StoaHeader extends LitElement {
     }
     #status.connected {
       background: var(--green, #00b894);
-      color: #000;
+      color: #111;
     }
     #status.disconnected {
       background: var(--accent, #e94560);

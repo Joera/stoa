@@ -15,12 +15,21 @@
       "status": "pr2-merged",
       "split_commit": "fe89c83",
       "split_diff": "/home/joera/stoa/.stoa/diffs/scaffold-poc-split.diff",
-      "gates_verified_phase2": ["server typecheck", "server build", "server smoke(13)", "docker compose config"],
+      "gates_verified_phase2": [
+        "server typecheck",
+        "server build",
+        "server smoke(13)",
+        "docker compose config"
+      ],
       "review_conversation_id_phase2": "44e8e4673fe3478c80ab7388fdf65ad7",
       "review_verdict_phase2": "APPROVE-WITH-NITS",
       "split_status": "pr-open",
       "nit_commit": "915262f",
-      "nit_fixes": ["README local quick-start 404s (add web static-server script)", "root-level .dockerignore for compose contexts", "configure pre-join guard restored"],
+      "nit_fixes": [
+        "README local quick-start 404s (add web static-server script)",
+        "root-level .dockerignore for compose contexts",
+        "configure pre-join guard restored"
+      ],
       "pr1_merged": true,
       "pr1_merged_sha": "5a4bfda (merged ed3bd0d state, pre-split)",
       "pr2_url": "https://github.com/Joera/stoa/pull/2",
@@ -43,17 +52,32 @@
       "pr_url": "https://github.com/Joera/stoa/pull/1",
       "pr_head_commit": "6441491",
       "diff": "/home/joera/stoa/.stoa/diffs/scaffold-poc.diff",
-      "gates_verified": ["typecheck", "build", "smoke(15)"],
+      "gates_verified": [
+        "typecheck",
+        "build",
+        "smoke(15)"
+      ],
       "review_model": "deepseek-v4-flash-0731 (requested kimi-k2-7-code, harness fell back to default -> same-family review)",
       "review_conversation_id": "44e8e4673fe3478c80ab7388fdf65ad7",
       "review_report": "/home/joera/stoa/.stoa/diffs/scaffold-poc-review/REPORT.md",
       "review_verdict": "BLOCKING (initial) -> APPROVE-WITH-NITS (final, fix ed3bd0d)",
-      "review_findings": ["B1 transcript content not extracted", "B2 answer_delta never fires", "B3 tool events keyed by id not callId", "B4 source attribution unwired"],
+      "review_findings": [
+        "B1 transcript content not extracted",
+        "B2 answer_delta never fires",
+        "B3 tool events keyed by id not callId",
+        "B4 source attribution unwired"
+      ],
       "review_status": "approved-with-nits",
       "status": "ready-for-merge",
       "fix_commit": "ed3bd0d",
       "fix_diff": "/home/joera/stoa/.stoa/diffs/scaffold-poc-fix.diff",
-      "residual_nits": ["SPA live-generation lifecycle not cleared on commit", "answer_delta prefix-length diff", "index-aligned tool diff", "fire-and-forget emitSourcesIfNew", "duplicated matching logic"]
+      "residual_nits": [
+        "SPA live-generation lifecycle not cleared on commit",
+        "answer_delta prefix-length diff",
+        "index-aligned tool diff",
+        "fire-and-forget emitSourcesIfNew",
+        "duplicated matching logic"
+      ]
     },
     {
       "title": "venice-provider-switch",
@@ -80,16 +104,22 @@
       "pr_url": null,
       "status": "implementing",
       "created": "2026-10-02",
-      "wip_source": "cancelled session 3e818c (wrong worktree) — 7 modified + 2 untracked files harvested via copy",
+      "wip_source": "cancelled session 3e818c (wrong worktree) \u2014 7 modified + 2 untracked files harvested via copy",
       "wip_diff": "/home/joera/stoa/.stoa/diffs/provider-wip.diff",
-      "remaining_work": ["verify pi-ai openai-completions.lazy import path", "node --env-file-if-exists=.env local loading (host 22.23 + alpine base)", ".gitignore/.dockerignore .env entries", "README Venice provider section", "keep no-key startup warning"],
+      "remaining_work": [
+        "verify pi-ai openai-completions.lazy import path",
+        "node --env-file-if-exists=.env local loading (host 22.23 + alpine base)",
+        ".gitignore/.dockerignore .env entries",
+        "README Venice provider section",
+        "keep no-key startup warning"
+      ],
       "note": "Finishes the harvested Venice provider switch in its own worktree/PR. Real .env written locally by orchestrator after wiring lands."
     },
     {
       "title": "web-lit-components",
       "purpose": "implement",
       "worker": "builder",
-      "model": "deepseek-v4-pro (override — USER CORRECTION 2026-10-02: ONLY deepseek-v4-flash-0731 for all dispatches from now on)",
+      "model": "deepseek-v4-pro (override \u2014 USER CORRECTION 2026-10-02: ONLY deepseek-v4-flash-0731 for all dispatches from now on)",
       "conversation_id": "6d1d598acdee4ea1a3a10872feee61d1",
       "worktree": "/home/joera/worktrees/stoa-web-lit",
       "branch": "web-lit",
@@ -115,9 +145,23 @@
       "status": "BLOCKING",
       "created": "2026-10-02",
       "verdict": "BLOCKING -> fix task fix-web-lit-render dispatched (2026-10-02)",
-      "findings": ["B1 streaming bubble freezes after first char (isAnswerDelta in-place mutation of _liveGeneration.text + same-ref property, Lit Object.is hasChanged)", "B2 source chips never render (isSources in-place mutation of entry.sources on same _entries array, no version counter)"],
-      "resolved_items": ["1 decomposition RESOLVED", "3 single-source RESOLVED", "4 build/serve RESOLVED", "5 gates all pass"],
-      "nits": ["dead interrupting property", "composer clears input on closed WS", "teardown reconnect race", "nginx .map content-type", "unused _observer"],
+      "findings": [
+        "B1 streaming bubble freezes after first char (isAnswerDelta in-place mutation of _liveGeneration.text + same-ref property, Lit Object.is hasChanged)",
+        "B2 source chips never render (isSources in-place mutation of entry.sources on same _entries array, no version counter)"
+      ],
+      "resolved_items": [
+        "1 decomposition RESOLVED",
+        "3 single-source RESOLVED",
+        "4 build/serve RESOLVED",
+        "5 gates all pass"
+      ],
+      "nits": [
+        "dead interrupting property",
+        "composer clears input on closed WS",
+        "teardown reconnect race",
+        "nginx .map content-type",
+        "unused _observer"
+      ],
       "note": "Re-dispatch of failed kimi-k3 review, on DeepSeek Flash only per user policy. Empirically verified (happy-dom harness + docker container). Fix dispatched to fresh flash session."
     },
     {
@@ -131,12 +175,12 @@
       "pr_url": "https://github.com/Joera/stoa/pull/3",
       "base": "b474157",
       "report": "/home/joera/stoa/.stoa/diffs/web-lit-fix.md",
-      "status": "DONE — B1/B2 fixed, pushed 4f34322 (only stoa-app.ts +15/-5)",
+      "status": "DONE \u2014 B1/B2 fixed, pushed 4f34322 (only stoa-app.ts +15/-5)",
       "fix_commit": "4f34322",
       "runtime_verified": "happy-dom harness: B1 A->AB->ABC, B2 2 chips; regression control reproduces both bugs on old code",
       "pre_existing_finding": "BLOCKING build bug: dist/app.js cannot mount in browser (esbuild TC39 standard decorators throw 'Unsupported decorator location: field'; native class fields shadow Lit accessors). Not in scope of this task; follow-up fix-web-lit-build-config dispatched.",
       "created": "2026-10-02",
-      "note": "Fresh flash session (original implementer was on pro model — user policy: flash only). Fixes B1/B2 on existing worktree/branch/PR #3."
+      "note": "Fresh flash session (original implementer was on pro model \u2014 user policy: flash only). Fixes B1/B2 on existing worktree/branch/PR #3."
     },
     {
       "title": "fix-web-lit-build-config",
@@ -149,7 +193,7 @@
       "pr_url": "https://github.com/Joera/stoa/pull/3",
       "base": "4f34322",
       "report": "/home/joera/stoa/.stoa/diffs/web-lit-build-config-fix.md",
-      "status": "DONE — pushed c95433e (tsconfig.json +6)",
+      "status": "DONE \u2014 pushed c95433e (tsconfig.json +6)",
       "fix_commit": "c95433e",
       "verified": "npm run build PASS; external /shared/protocol.js import intact; __decorateElement count 0; real dist/app.js mounts (12 checks: reactivity, B1 A->ABC, B2 2 chips); regression control (pre-fix artifact threw at import)",
       "created": "2026-10-02",
@@ -166,7 +210,7 @@
       "base": "b474157",
       "head": "c95433e",
       "status": "BLOCKING (narrow)",
-      "verdict": "B1 RESOLVED, B2 RESOLVED, build-config PARTIAL (local fixed; Docker deliverable still throws — Dockerfile doesn't COPY tsconfig.json into builder stage), no regressions RESOLVED",
+      "verdict": "B1 RESOLVED, B2 RESOLVED, build-config PARTIAL (local fixed; Docker deliverable still throws \u2014 Dockerfile doesn't COPY tsconfig.json into builder stage), no regressions RESOLVED",
       "created": "2026-10-02",
       "note": "One gap: dockerized artifact still standard-decorator bundle -> blank page. Follow-up fix-web-lit-build-config (Dockerfile COPY) dispatched 2026-10-02. Final re-review dispatched after docker fix (041aa6d)."
     },
@@ -181,7 +225,7 @@
       "pr_url": "https://github.com/Joera/stoa/pull/3",
       "base": "c95433e",
       "report": "/home/joera/stoa/.stoa/diffs/web-lit-docker-fix.md",
-      "status": "DONE — pushed 041aa6d (Dockerfile +1)",
+      "status": "DONE \u2014 pushed 041aa6d (Dockerfile +1)",
       "fix_commit": "041aa6d",
       "verified": "docker build PASS; container artifact byte-identical to local (cmp); __decorateElement=0, __decorateClass=23, __publicField=0, external import preserved; container bundle mounts in happy-dom with all 12 checks passing",
       "created": "2026-10-02",
@@ -198,8 +242,13 @@
       "base": "2b2906a",
       "head": "be5b5a0 (merge of provider-venice 45f9443)",
       "status": "APPROVE-WITH-NITS",
-      "verdict": "APPROVE-WITH-NITS — all 5 items PASS",
-      "findings": ["A MODERATE: chatTemplateKwargs inert under qwen-chat-template (pi-ai hardcodes enable_thinking=!!reasoningEffort, preserve_thinking=true); bridge sets no thinkingLevel -> default off -> model runs thinking-OFF by default. Doc/intent mismatch, not a safety defect. Follow-up recommended.", "B NIT redundant key check server.ts:120", "C NIT zero-cost placeholder", "D NIT contextWindow/maxTokens unverifiable catalog claims"],
+      "verdict": "APPROVE-WITH-NITS \u2014 all 5 items PASS",
+      "findings": [
+        "A MODERATE: chatTemplateKwargs inert under qwen-chat-template (pi-ai hardcodes enable_thinking=!!reasoningEffort, preserve_thinking=true); bridge sets no thinkingLevel -> default off -> model runs thinking-OFF by default. Doc/intent mismatch, not a safety defect. Follow-up recommended.",
+        "B NIT redundant key check server.ts:120",
+        "C NIT zero-cost placeholder",
+        "D NIT contextWindow/maxTokens unverifiable catalog claims"
+      ],
       "created": "2026-10-02",
       "note": "Post-merge sanity review (user merged PR #4 themselves). Session was cut off by a limit earlier; continued to finish this report on DeepSeek Flash. Secrets hygiene airtight: no key in any commit/tracked file, only gitignored server/.env."
     },
@@ -213,14 +262,44 @@
       "branch": "monorepo-restructure",
       "base": "main (e921492)",
       "pr_url": null,
-      "status": "PR #5 OPEN — READY TO MERGE. Independent review: APPROVE-WITH-NITS (all 8 contract items pass, no blockers; reviewer 01d9f438e22d4089a2830ba008dd849d, same-family DeepSeek Flash per user model policy). Orchestrator re-verified gates at head bc8a7ce: shared tsc dist/.d.ts, server tc 0/build 0/smoke 12-0, web build 0 /shared refs + legacy decorators x23, compose config OK, no ../shared, 0 key patterns. Review report: .stoa/diffs/monorepo-restructure-review.md",
+      "status": "PR #5 OPEN \u2014 READY TO MERGE. Independent review: APPROVE-WITH-NITS (all 8 contract items pass, no blockers; reviewer 01d9f438e22d4089a2830ba008dd849d, same-family DeepSeek Flash per user model policy). Orchestrator re-verified gates at head bc8a7ce: shared tsc dist/.d.ts, server tc 0/build 0/smoke 12-0, web build 0 /shared refs + legacy decorators x23, compose config OK, no ../shared, 0 key patterns. Review report: .stoa/diffs/monorepo-restructure-review.md",
       "diff_snapshot": "/home/joera/stoa/.stoa/diffs/monorepo-restructure.diff (5110 lines, +1901/-2816)",
       "r2_notes": "first session wedged after runtime declared it failed (frozen activity, no commits, worktree stayed clean)",
       "created": "2026-10-02",
-      "post_merge_cleanup": "2026-10-02: removed stale untracked prototype/ tree (duplicate key file + agent.sqlite copies); re-located real .env to server/.env (gitignored, verified). Bug found post-merge: web client WS URL missing /ws path -> PR #6 OPEN (fix-ws-url, head bf9c48e). Implementer: a151a8d8987049088c754e01f69d017d. Gates re-verified at head: web build OK, server tc 0, smoke 12/0, only web/config.js+stoa-app.ts+REPORT changed, no key. Diff: .stoa/diffs/fix-ws-url.diff (295 lines). Review dispatched: review-fix-ws-url (c48b32afc55345629af7cbdfeb82ee19). REVIEW: APPROVE (no blockers, 5 doc nits) — report .stoa/diffs/fix-ws-url-review.md. PR #6 OPEN + MERGEABLE — READY TO MERGE. Live server :8080 restarted post-gate (same code), SPA :8081 up.",
+      "post_merge_cleanup": "2026-10-02: removed stale untracked prototype/ tree (duplicate key file + agent.sqlite copies); re-located real .env to server/.env (gitignored, verified). Bug found post-merge: web client WS URL missing /ws path -> PR #6 OPEN (fix-ws-url, head bf9c48e). Implementer: a151a8d8987049088c754e01f69d017d. Gates re-verified at head: web build OK, server tc 0, smoke 12/0, only web/config.js+stoa-app.ts+REPORT changed, no key. Diff: .stoa/diffs/fix-ws-url.diff (295 lines). Review dispatched: review-fix-ws-url (c48b32afc55345629af7cbdfeb82ee19). REVIEW: APPROVE (no blockers, 5 doc nits) \u2014 report .stoa/diffs/fix-ws-url-review.md. PR #6 OPEN + MERGEABLE \u2014 READY TO MERGE. Live server :8080 restarted post-gate (same code), SPA :8081 up.",
+      "remote_ws_fix": "2026-10-02: user views app over Tailscale (bill.hippogryph-goldeye.ts.net:8081); hardcoded localhost WS default broke remote viewing. Verified tailnet path to :8080/ws works end-to-end (join->view). Immediate unblock: ?ws=ws://bill.hippogryph-goldeye.ts.net:8080/ws. Proper fix (host-derived default) PR #7 OPEN (fix-ws-host-derived, head d6544a9): only web/config.js -> window.STOA_WS_URL = `ws://${location.hostname}:8080/ws`. Implementer: 86433b1bc65043d389c3e139f81e0961. Gates re-verified at head: web build OK, server tc 0, smoke 12/0, only config.js+REPORT changed, 0 keys. Diff: .stoa/diffs/fix-ws-host-derived.diff. REVIEW: APPROVE (all 6 items PASS, informational spot-checks only) \u2014 report .stoa/diffs/fix-ws-host-derived-review.md. PR #7 OPEN + READY TO MERGE. PR #6 merged by user (6a0889a).",
+      "empty_reply_diagnostics": "2026-10-02 CONFIRMED ROOT CAUSE + FIX SHIPPED + BOTH REVIEWS APPROVE. PR #9 fix-venice-thinking-format (head 69471f9, OPEN, REVIEW APPROVE all 5 PASS 4 nits, report .stoa/diffs/fix-venice-thinking-format-review.md): server.ts thinkingFormat qwen-chat-template -> openai + dropped inert chatTemplateKwargs; E2E-proven assistantLen=32 'Hello! How can I help you today?' stopReason=stop errors=0; typecheck 0, smoke 12/0. PR #8 container+logs (head 7aac2dc, OPEN, REVIEW APPROVE no blocking 7 nits, report .stoa/diffs/fix-server-logs-review.md). Original finding in .stoa/diffs/fix-venice-thinking-format.diff. Merge order: PR #9 then PR #8. After merge: docker compose up -d --build + reset room (docker compose down -v).",
       "convention_report": "/home/joera/stoa/.stoa/diffs/monorepo-convention.md",
-      "cwd_correction": "Session initially orienting in ~/stoa (main checkout) — corrected to /home/joera/worktrees/stoa-monorepo before any edits; main checkout left untouched. Session then wedged; cancelled/re-dispatched as monorepo-restructure-r2 (6f60f978a388433ba24fadaf53897fd8) in same clean worktree with recon baked in.",
+      "cwd_correction": "Session initially orienting in ~/stoa (main checkout) \u2014 corrected to /home/joera/worktrees/stoa-monorepo before any edits; main checkout left untouched. Session then wedged; cancelled/re-dispatched as monorepo-restructure-r2 (6f60f978a388433ba24fadaf53897fd8) in same clean worktree with recon baked in.",
       "contract": "pnpm workspace at repo root (flat shared/server/web); @stoa/shared TS package (tsc->dist, exports map); server + web import by name workspace:*; web bundles raw TS via esbuild alias; remove /shared/protocol.js URL + nginx /shared/ + hand-written .d.ts; consolidate docs; delete old prototype/; own PR; gates = shared build, server typecheck/build/smoke, web build (no external shared, legacy decorators), compose config+up+WS, structural greps, no real keys."
+    },
+    {
+      "title": "mobile-nav-routing",
+      "purpose": "implement",
+      "worker": "builder",
+      "model": "deepseek-v4-flash-0731",
+      "conversation_id": "24943f9e750c4c8bb3a1ba9ad312db2d",
+      "worktree": "/home/joera/worktrees/stoa-mobile-nav",
+      "branch": "mobile-nav",
+      "base": "main (f8d4e86)",
+      "pr_url": null,
+      "status": "IN FLIGHT",
+      "contract": "mobile-first: contributions side-pane -> separate navigo-routed page (hash mode); room view single-column; single WS connection/state preserved across routes; web/ only; gates = web build, server tc/build/smoke, compose config+build web, browser proof of /#/ and /#/contributions + state survival; own PR.",
+      "created": "2026-10-05"
+    },
+    {
+      "title": "explore-identity-attribution",
+      "purpose": "explore",
+      "worker": "builder",
+      "model": "deepseek-v4-flash-0731",
+      "conversation_id": "5b34b46bdb0643549c55077fe3fa9bce",
+      "worktree": null,
+      "branch": null,
+      "base": null,
+      "pr_url": null,
+      "status": "IN FLIGHT",
+      "contract": "read-only research: identity/participant primitives in pi-durable + pi-ai (sender/author/participant/clientId/owner fields), how pi-durable examples attribute turns to a person, what stoa backend currently attaches (likely nothing), pi one-user vs many-user gap, candidate attachment points (no frontend auth design). Report -> .stoa/reports/identity-attribution.md",
+      "created": "2026-10-05"
     }
   ]
 }

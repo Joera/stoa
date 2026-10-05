@@ -8,21 +8,21 @@ export class StoaRail extends LitElement {
       display: flex;
       flex-direction: column;
       width: 260px;
-      background: var(--surface, #16213e);
-      border-right: 1px solid var(--border, #2a2a4a);
+      background: var(--surface, #fff);
+      border-right: 1px solid var(--border, #fff);
       padding: 16px;
       overflow-y: auto;
       flex-shrink: 0;
     }
     h3 {
       font-size: 13px;
-      color: var(--dim, #8892a4);
+      color: var(--dim, #111);
       margin: 0 0 12px 0;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
     .contrib-card {
-      background: var(--surface2, #0f3460);
+      background: var(--surface2, #111);
       border-radius: 8px;
       padding: 10px 12px;
       margin-bottom: 8px;
@@ -33,7 +33,7 @@ export class StoaRail extends LitElement {
       margin-bottom: 4px;
     }
     .contrib-card .meta {
-      color: var(--dim, #8892a4);
+      color: var(--dim, #111);
       font-size: 11px;
     }
   `;
