@@ -7,6 +7,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { loadConfig } from "./config.js";
 import { RoomExtension } from "./room-extension.js";
 import { handleClient } from "./bridge.js";
+import { log, nextConnId } from "./log.js";
 import { createServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 
@@ -108,9 +109,10 @@ async function main(): Promise<void> {
   });
 
   wss.on("connection", (ws: WebSocket) => {
-    console.log("WS client connected");
-    handleClient(harness, ws, ctx);
-    ws.on("close", () => console.log("WS client disconnected"));
+    const connId = nextConnId();
+    log("ws", null, "client connected", connId);
+    handleClient(harness, ws, ctx, connId);
+    ws.on("close", () => log("ws", null, "client disconnected", connId));
   });
 
   httpServer.listen(config.port, () => {

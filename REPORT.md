@@ -19,7 +19,15 @@ Secondary: `chatTemplateKwargs: { enable_thinking: true, preserve_thinking: fals
 **inert** anyway, because the `qwen-chat-template` branch it feeds is never taken by
 Venice's openai-completions path.
 
-## Chosen fix + why
+1. **Server-side request/response logging** in `server/src/*.ts` only
+   (`log.ts` new, `bridge.ts`, `server.ts`, `room-extension.ts` edited). Every line
+   is tagged with an ISO timestamp and a per-turn correlation id (`corr=...`) plus
+   a per-connection id (`conn=...`). Output is `console.log`/`console.error`, so it
+   appears in `docker compose logs -f server`.
+2. **Docker run path** — the app now runs as containers via `docker compose up
+   --build` (server :8080, web :8081). The Venice key is injected at runtime via
+   `env_file: server/.env` — never baked into the image, never committed
+   (`server/.env` is gitignored + dockerignored).
 
 In `server/src/server.ts`, compat block:
 
