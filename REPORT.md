@@ -1,14 +1,23 @@
-# Server request/response logging + Docker run path — Report
+# Stop sending `chat_template_kwargs` to Venice — Fix Report
 
-**Branch:** `add-server-logs-docker2` (off `main` @ `6dc94aa`)
-**PR:** `add-server-logs-docker2` → `main` (title: "feat: server request/response logging + docker run path for diagnosing empty replies")
+**Branch:** `fix-venice-thinking-format` (off `main` @ `6dc94aa`)
+**PR:** `fix-venice-thinking-format` → `main` (title: "fix: stop sending chat_template_kwargs to Venice (empty-reply 400)")
 **Date:** 2026-10-02
-**Scope:** INSTRUMENTATION + CONTAINERIZATION ONLY. Zero model/provider behavior
-change, zero root-cause fix. No `web/` UI change beyond keeping compose working.
+**Scope:** SMALL, SINGLE-CONCERN FIX — zero other behavior change. Only `server/src/server.ts`
+edited. `shared/`, `web/`, `bridge.ts` untouched.
 
----
+## Root cause (pre-verified — not re-derived here)
 
-## What this PR does
+`server/src/server.ts` declared the Venice provider compat as
+`thinkingFormat: "qwen-chat-template"`. pi-ai's openai-completions `buildParams` hardcodes
+that branch and emits a `chat_template_kwargs` object on **every** request. **Venice rejects
+that key**: a direct probe returned HTTP 400 `Invalid request parameters` /
+`issues: [{code:'unrecognized_keys', keys:['chat_template_kwargs']}]`. Removing
+`chat_template_kwargs` returns HTTP 200 with a real answer. pi-durable persists the 400 as
+an empty `pi.assistant` entry (`stopReason:error`) — the empty reply the user sees.
+Secondary: `chatTemplateKwargs: { enable_thinking: true, preserve_thinking: false }` was
+**inert** anyway, because the `qwen-chat-template` branch it feeds is never taken by
+Venice's openai-completions path.
 
 1. **Server-side request/response logging** in `server/src/*.ts` only
    (`log.ts` new, `bridge.ts`, `server.ts`, `room-extension.ts` edited). Every line
@@ -20,149 +29,96 @@ change, zero root-cause fix. No `web/` UI change beyond keeping compose working.
    `env_file: server/.env` — never baked into the image, never committed
    (`server/.env` is gitignored + dockerignored).
 
-## The instrumentation seam (honest boundary)
+In `server/src/server.ts`, compat block:
 
-The harness's provider call is built and executed **inside `@earendil-works/pi-ai`
-/ `pi-durable`**, which is out of scope to read or instrument. So the request and
-result logs are taken at the **coarsest stoa-side seams**:
-
-- **Request** (`[req]`): the stoa-visible conversation entries (`ConversationView.entries`)
-  that the harness serializes into the provider request, logged **just before**
-  `conversation.submit()` is called. Role + content length only, plus an
-  `EMPTY CONTENT DETECTED` flag on any empty/whitespace message.
-- **Result** (`[res]` + `[res-hook]`): the assistant reply as it lands in the view
-  (`[res]`, per newly-persisted entry) and as seen by the stoa `afterResponse` hook
-  in `room-extension.ts` (`[res-hook]`). Length, empty flag, stop reason (defensively
-  peeked from runtime data; `n/a` when the harness exposes none).
-
-Never logged: API keys, full user/assistant text. Only lengths, roles, flags, and
-error strings.
-
-## How to run
-
-```bash
-# 1. Prepare secrets (gitignored, referenced by path only)
-cp server/.env.example server/.env   # then fill in VENICE_INFERENCE_KEY, MODEL, VENICE_BASE_URL
-
-# 2. Build + start both containers
-docker compose up --build -d         # server :8080 (WS /ws), web :8081
-
-# 3. Watch server logs live
-docker compose logs -f server
+```diff
+           maxTokensField: "max_tokens",
+-          thinkingFormat: "qwen-chat-template",
+-          chatTemplateKwargs: { enable_thinking: true, preserve_thinking: false },
++          thinkingFormat: "openai",
+           requiresReasoningContentOnAssistantMessages: true,
 ```
 
-`docker compose config` validates with no secrets in the diff; `server/.env` is
-excluded from the image by `.dockerignore` (`.env`) and from git by `.gitignore`.
+- `thinkingFormat` → `"openai"`: the openai-completions build path (the only path Venice
+  speaks) no longer takes the hardcoded `qwen-chat-template` branch, so
+  `chat_template_kwargs` is never constructed.
+- `chatTemplateKwargs` line **dropped entirely**: under `"openai"` the flag would be
+  meaningless at best; dropping it guarantees the rejected key can never appear in any
+  request payload, whatever pi-ai does with compat flags.
+- `requiresReasoningContentOnAssistantMessages` **kept** — unrelated to the rejected key;
+  not part of the probe failure.
+- **Declared thinking intent:** the old config wanted `enable_thinking: true`, but that
+  flag was provably inert under `qwen-chat-template` (the branch is never taken). Under
+  `"openai"`, thinking is expressed through pi-ai's reasoning-effort path: the model keeps
+  `reasoning: true` and the existing `thinkingLevelMap` (minimal…max → low/medium/high)
+  unchanged. Per the acceptance contract, a **working reply is the priority**; whether
+  Venice surfaces thinking content for `deepseek-v4-flash-0731` is orthogonal to this 400
+  and left at the model default. No new feature was added.
 
-## Log legend (what each line means)
+## Acceptance gates
 
-| Tag | Meaning |
-|-----|---------|
-| `[ws]` | Connection open/close for a client (`conn=cN`). |
-| `[msg]` | Every WS message received: type, `textLen` (length only), `room`, and `field` (`content` or `text` — which key actually carried the text). |
-| `[req]` | Request context right before the harness runs the turn. `contentLen` = submitted length, `msgs=N` = number of conversation entries being sent, then one `[role len=L]` per message with `EMPTY CONTENT DETECTED` flag. **Key diagnostic line.** |
-| `[res]` | Per-turn result from the view seam: `assistantLen=`, `empty=`, `stopReason=` for a new `pi.assistant` entry; `persistedEmpty kind=... len=0 EMPTY CONTENT DETECTED` for any other newly-persisted empty entry (e.g. the empty `pi.system`). |
-| `[res-hook]` | Provider result at the stoa `afterResponse` hook: `assistantLen=`, `empty=`, `stopReason=`. |
-| `[submit-reject]` / `[steer-reject]` | A submit/steer rejected before reaching the harness (no room, or non-string/empty `content`). Logs `reason=` and which field the client actually sent. |
-| `[err]` | Uncaught error from the message handler (e.g. a harness/provider throw); exact error string logged. |
+| # | Gate | Exact command | Result |
+|---|------|---------------|--------|
+| 1 | Server typecheck 0 errors | `pnpm -C server run typecheck` | ✅ exit 0, 0 errors (fresh worktree needs `pnpm -C shared run build` first — no `shared/dist`; artifacts are gitignored) |
+| 2 | Server smoke | `pnpm -C server run smoke` | ✅ **12 passed, 0 failed** |
+| 3 | E2E proof (money gate) | ws client → `ws://localhost:8080/ws`, join `main`, submit `{t:'submit', content:'hello', requestId:'t1'}` | ✅ before/after snapshot + `[res-hook] assistantLen>0`, see below |
+| 4 | Repo hygiene | `git status` / `git diff` | ✅ only `server/src/server.ts` + `REPORT.md` changed; no keys in diff; no stray files |
 
-A `[msg]` + `[req]` + `[res]` trio with the same `corr=` value is one full
-request/response round trip.
-
-## Repro with logs (run against the container, :8080)
-
-`ws` client joins `main`, then submits `hello` in both shapes the field was ever
-sent with. Server log excerpt (`docker compose logs server`):
+### Gate 1–2 detail
 
 ```
-server-1  | [2026-10-02T18:13:50.256Z] [msg] conn=c1 t=join textLen=0 room=main
-server-1  | [2026-10-02T18:13:50.676Z] [msg] conn=c1 t=submit textLen=5 field=text
-server-1  | [2026-10-02T18:13:50.676Z] [submit-reject] conn=c1 corr=tmura7vmc-1 reason=missing-content-field clientSentField=text textLen=5
-server-1  | [2026-10-02T18:13:51.083Z] [msg] conn=c1 t=submit textLen=5 field=content
-server-1  | [2026-10-02T18:13:51.084Z] [req] conn=c1 corr=tmura7vxn-2 submit contentLen=5 msgs=0
-server-1  | [2026-10-02T18:13:51.108Z] [res] conn=c1 corr=tmura7vxn-2 persistedEmpty kind=pi.system len=0 EMPTY CONTENT DETECTED
-server-1  | [2026-10-02T18:13:51.771Z] [res-hook] assistantLen=0 empty=true stopReason=error
-server-1  | [2026-10-02T18:13:51.781Z] [res] conn=c1 corr=tmura7vxn-2 assistantLen=0 empty=true stopReason=error
-server-1  | [2026-10-02T18:14:18.951Z] [req] conn=c2 corr=tmura8hfp-3 submit contentLen=5 msgs=3 [user len=5] [system len=0 EMPTY CONTENT DETECTED] [assistant len=0 EMPTY CONTENT DETECTED]
-server-1  | [2026-10-02T18:14:19.222Z] [res-hook] assistantLen=0 empty=true stopReason=error
-server-1  | [2026-10-02T18:14:19.229Z] [res] conn=c2 corr=tmura8hfp-3 assistantLen=0 empty=true stopReason=error
+$ pnpm -C shared run build && pnpm -C server run build && pnpm -C server run typecheck
+$ tsc --noEmit            # 0 errors
+
+$ pnpm -C server run smoke
+Results: 12 passed, 0 failed
+```
+(Smoke caveats — no `VENICE_INFERENCE_KEY`, so no live model answer — are the pre-existing
+expected behavior of the smoke test itself.)
+
+### Gate 3 — E2E proof (fixed code + diagnostic instrumentation)
+
+The acceptance requires the `[res-hook]` log line. That instrumentation lives on the
+diagnostic branch (`add-server-logs-docker2`, the stack the investigation used), which
+still carried the **buggy** compat. To prove the fix through exactly that seam without
+touching any worktree, the diagnostic branch was copied to an isolated scratch dir
+(`/tmp/stoa-e2e`), the **identical one-line fix** applied (compat block verified
+byte-identical to the shipped commit), the poisoned room reset
+(`docker compose down -v`), and the stack rebuilt (`docker compose up -d --build`) with
+the real `VENICE_INFERENCE_KEY` (via the branch's `env_file: server/.env`).
+
+**BEFORE** — view snapshot after join (room clean after `down -v`):
+```json
+{ "entriesCount": 0, "entries": [], "live": { "generation": null, "tools": [] }, "inbox": [] }
 ```
 
-### What the logs show about the live bug (observations only — no fix)
-
-1. **The `text` field client is rejected locally, before the harness.** The
-   ground-truth repro sends `{t:'submit', text:'hello'}`; the protocol field is
-   `content`, so `msg.content` is `undefined` and the server's own guard returns
-   `content must be a non-empty string`. That is the **immediate** error the
-   reporter sees — it never reaches the provider. (`[submit-reject]
-   reason=missing-content-field clientSentField=text`.)
-2. **A single successful submit persists empty messages.** With the protocol
-   `content` field, one `hello` submit produces commits `pi.user="hello"` →
-   `pi.system=""` → `pi.assistant=""`. The empty `pi.system` is flagged
-   (`persistedEmpty ... EMPTY CONTENT DETECTED`) and the assistant reply comes back
-   **empty with `stopReason=error`** (`[res-hook] assistantLen=0 empty=true
-   stopReason=error`). The harness does not throw here — it swallows the provider
-   failure and persists the empty assistant entry.
-3. **The next submit carries the poisoned context.** With the empty `pi.system` +
-   `pi.assistant` in the transcript, the next `hello` request logs:
-   `msgs=3 [user len=5] [system len=0 EMPTY CONTENT DETECTED] [assistant len=0 EMPTY CONTENT DETECTED]`
-   and again resolves empty (`stopReason=error`). The empty messages are demonstrably
-   in the request context — but the error string the reporter saw is produced by the
-   local `content`-field guard (path 1), not thrown by the provider/harness in the
-   container repro.
-
-**Root cause is NOT changed or fixed here** (out of scope). The logs now make the
-two contributing mechanisms visible: (a) the client's `text` field trips the local
-validation guard, and (b) the provider/harness produces an empty assistant
-(`stopReason=error`) that gets persisted and poisons subsequent turns.
-
-## How to reset the poisoned room state
-
-The room transcript (including the poisoned empty entries) lives in the sqlite DB
-inside the `stoa-data` named volume → `/data/agent.sqlite`.
-
-```bash
-# Option A — wipe the whole stack's data and start clean
-docker compose down -v && docker compose up -d
-
-# Option B — reset just the DB file while containers keep running
-docker compose exec server rm -f /data/agent.sqlite /data/agent.sqlite-*
-docker compose restart server
+**AFTER** — view snapshot after submitting `{t:'submit', content:'hello', requestId:'t1'}`:
+```json
+{
+  "entriesCount": 3,
+  "entries": [
+    { "id": "7",  "kind": "pi.user",      "role": "user",      "content": "hello",                            "contentLen": 5 },
+    { "id": "10", "kind": "pi.system",     "role": "system",     "content": "",                                "contentLen": 0 },
+    { "id": "11", "kind": "pi.assistant",  "role": "assistant",  "content": "Hello! How can I help you today?", "contentLen": 32 }
+  ],
+  "live": { "generation": null, "tools": [] },
+  "inbox": []
+}
 ```
+`RESULT: PASS — non-empty assistant reply` · commits=3 deltas=1 **errors=0**
 
-For a bare (non-container) run, delete `server/agent.sqlite` the same way.
-
-## Acceptance gates (run at head)
-
-| # | Gate | Result |
-|---|------|--------|
-| 1 | `pnpm -C server run typecheck` | ✅ 0 errors |
-| 1 | `pnpm -C server run smoke` | ✅ **12 passed, 0 failed** |
-| 2 | `docker compose config` + `docker compose up --build` | ✅ both containers build & run; WS join→view handshake OK on `ws://localhost:8080/ws` |
-| 3 | Repro log lines (request + empty-content flag + provider result/error) | ✅ excerpt above |
-| 4 | `docker compose logs -f server` format | ✅ timestamped `[tag] conn=.. corr=..` lines |
-| 5 | Hygiene | ✅ `git status` clean (only the 4 intended files + new `log.ts`); no `sk-`/key in diff; `server/.env` untracked, referenced by path only |
-
-## What is running now
-
-- `stoa-container-logs-2-server-1` (server :8080, WS /ws) — **up**
-- `stoa-container-logs-2-web-1` (web :8081) — **up**
-- The `main` room currently holds the reproduced poisoned transcript
-  (`pi.user="hello"`, `pi.system=""`, `pi.assistant=""`), which is the live-bug
-  state. Reset per the section above.
+**Container logs** — the money line (and no 400 anywhere):
+```
+[2026-10-02T18:35:30.382Z] [msg] conn=c1 t=submit textLen=5 field=content
+[2026-10-02T18:35:30.382Z] [req] conn=c1 corr=tmurazqha-1 submit contentLen=5 msgs=0
+[2026-10-02T18:35:32.052Z] [res-hook] assistantLen=32 empty=false stopReason=stop
+[2026-10-02T18:35:32.058Z] [res] conn=c1 corr=tmurazqha-1 assistantLen=32 empty=false stopReason=stop
+```
+`[res-hook] assistantLen=32 empty=false` — **not** `empty=true`. Venice accepted the
+request (no `chat_template_kwargs` → no 400 → real HTTP 200 answer), and pi-durable
+persisted a non-empty `pi.assistant` entry.
 
 ## Diff
 
-- `server/src/log.ts` — new: timestamp/corr/conn helpers, `msgBrief`/`msgsBrief`
-  (role + length + EMPTY flag, never text), defensive `extractStopReason`,
-  `log`/`logErr`.
-- `server/src/bridge.ts` — per-message logging, request-context logging before
-  `conversation.submit`, submit/steer reject logging (with field detection),
-  per-turn result logging in the view subscription, error logging in the catch.
-- `server/src/room-extension.ts` — `[res-hook]` provider-result logging in
-  `afterResponse`.
-- `server/src/server.ts` — per-connection id + connect/disconnect log lines; passes
-  `connId` into `handleClient`.
-- `docker-compose.yml` — server gets env via `env_file: server/.env` (was host-env
-  `${VAR:-}` substitution); Dockerfile `ENV` defaults cover PORT/STORAGE_PATH/MODEL.
-  No image-embedded secrets.
+- `server/src/server.ts` — compat block: `thinkingFormat: "qwen-chat-template"` →
+  `"openai"`; `chatTemplateKwargs` line removed. Nothing else changed.
